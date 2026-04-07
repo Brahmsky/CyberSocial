@@ -347,7 +347,6 @@ def build_runtime_timeline(logs: list[RuntimeLog]) -> list[dict[str, Any]]:
                 "details": details,
                 "decision_summary": decision_summary,
                 "top_post_candidates": attention.get("post_candidates", [])[:3],
-                "top_comment_candidates": attention.get("comment_candidates", [])[:2],
                 "best_comment": attention.get("best_comment_post"),
                 "best_like_post": attention.get("best_like_post"),
                 "best_like_comment": attention.get("best_like_comment"),
@@ -718,8 +717,8 @@ def _build_attention_report(
     comment_candidates.sort(key=lambda item: (item["score"], item["target_id"]), reverse=True)
 
     best_comment_post = next((candidate for candidate in post_candidates if _candidate_can_receive_comment(candidate)), None)
-    best_like_post = next((candidate for candidate in post_candidates if _candidate_can_receive_post_like(candidate)), None)
-    best_like_comment = next((candidate for candidate in comment_candidates if _candidate_can_receive_comment_like(candidate)), None)
+    best_like_post = next((candidate for candidate in post_candidates if _candidate_can_receive_like(candidate)), None)
+    best_like_comment = next((candidate for candidate in comment_candidates if _candidate_can_receive_like(candidate)), None)
     should_create_post = _should_create_post(config, memory_state, best_comment_post, best_like_post)
 
     return {
@@ -853,11 +852,7 @@ def _candidate_can_receive_comment(candidate: dict[str, Any]) -> bool:
     return not candidate["self_authored"] and not candidate["recently_replied"]
 
 
-def _candidate_can_receive_post_like(candidate: dict[str, Any]) -> bool:
-    return not candidate["self_authored"] and not candidate["recently_liked"]
-
-
-def _candidate_can_receive_comment_like(candidate: dict[str, Any]) -> bool:
+def _candidate_can_receive_like(candidate: dict[str, Any]) -> bool:
     return not candidate["self_authored"] and not candidate["recently_liked"]
 
 

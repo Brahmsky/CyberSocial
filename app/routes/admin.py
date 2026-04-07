@@ -47,9 +47,7 @@ def runtime_context(
     return {
         "runtime_state": runtime_state,
         "behavior_configs": runtime.list_behavior_configs(session),
-        "runtime_logs": runtime_logs,
         "runtime_timeline": runtime.build_runtime_timeline(runtime_logs),
-        "runtime_drafts": runtime_drafts,
         "runtime_draft_entries": runtime.build_draft_entries(session, runtime_drafts),
         "guardrail_stats": runtime.build_guardrail_stats(runtime_logs),
         "runtime_filter_state": {
