@@ -30,12 +30,41 @@ def is_htmx(request: Request) -> bool:
     return request.headers.get("HX-Request", "").lower() == "true"
 
 
-def build_new_post_context(session: Session, *, errors: list[str] | None = None, form_data: dict | None = None) -> dict:
+def build_shell_context(session: Session, *, page_key: str) -> dict:
+    payload = forum.get_home_page_payload(session)
     return {
-        "agents": forum.list_agents(session),
-        "communities": forum.list_communities(session),
+        "page_key": page_key,
+        "top_communities": payload["communities"][:6],
+        "sidebar_hot_posts": payload["hot_posts"][:5],
+        "sidebar_new_posts": payload["new_posts"][:5],
+        "sidebar_agents": payload["active_agents"][:6],
+    }
+
+
+def build_new_post_context(session: Session, *, errors: list[str] | None = None, form_data: dict | None = None) -> dict:
+    agents = forum.list_agents(session)
+    communities = forum.list_communities(session)
+    resolved_form = form_data or {}
+    selected_agent = next(
+        (agent for agent in agents if str(agent.id) == str(resolved_form.get("agent_id"))),
+        agents[0] if agents else None,
+    )
+    selected_community = next(
+        (
+            community
+            for community in communities
+            if str(community.id) == str(resolved_form.get("community_id")) or resolved_form.get("community_slug") == community.slug
+        ),
+        communities[0] if communities else None,
+    )
+    return {
+        **build_shell_context(session, page_key="new-post"),
+        "agents": agents,
+        "communities": communities,
         "errors": errors or [],
-        "form": form_data or {},
+        "form": resolved_form,
+        "selected_agent": selected_agent,
+        "selected_community": selected_community,
     }
 
 
@@ -43,21 +72,42 @@ def build_post_context(session: Session, post_id: int) -> dict:
     post = forum.get_post(session, post_id)
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found.")
+    related_posts = [
+        candidate
+        for candidate in forum.sort_posts(list(post.community.posts), sort="hot")
+        if candidate.id != post.id
+    ][:5]
     return {
+        **build_shell_context(session, page_key="post-detail"),
         "post": post,
         "comment_nodes": forum.build_comment_tree(post.comments),
         "agents": forum.list_agents(session),
+        "related_posts": related_posts,
     }
 
 
 @router.get("/")
 def home(request: Request, session: Session = Depends(get_session)):
-    return render_template(request, "home.html", forum.get_home_page_payload(session))
+    return render_template(
+        request,
+        "home.html",
+        {
+            **forum.get_home_page_payload(session),
+            **build_shell_context(session, page_key="home"),
+        },
+    )
 
 
 @router.get("/communities")
 def communities(request: Request, session: Session = Depends(get_session)):
-    return render_template(request, "communities.html", {"communities": forum.list_communities(session)})
+    return render_template(
+        request,
+        "communities.html",
+        {
+            **build_shell_context(session, page_key="communities"),
+            "communities": forum.list_communities(session),
+        },
+    )
 
 
 @router.get("/communities/{slug}")
@@ -73,13 +123,25 @@ def community_detail(
     return render_template(
         request,
         "community_detail.html",
-        {"community": community, "posts": forum.sort_posts(list(community.posts), sort=sort), "sort": sort},
+        {
+            **build_shell_context(session, page_key="communities"),
+            "community": community,
+            "posts": forum.sort_posts(list(community.posts), sort=sort),
+            "sort": sort,
+        },
     )
 
 
 @router.get("/agents")
 def agents(request: Request, session: Session = Depends(get_session)):
-    return render_template(request, "agents.html", {"agents": forum.list_agents(session)})
+    return render_template(
+        request,
+        "agents.html",
+        {
+            **build_shell_context(session, page_key="agents"),
+            "agents": forum.list_agents(session),
+        },
+    )
 
 
 @router.get("/agents/{slug}")
@@ -91,6 +153,7 @@ def agent_detail(request: Request, slug: str, session: Session = Depends(get_ses
         request,
         "agent_detail.html",
         {
+            **build_shell_context(session, page_key="agents"),
             "agent": agent,
             "recent_posts": forum.sort_posts(list(agent.posts), sort="new")[:5],
             "recent_comments": sorted(agent.comments, key=lambda comment: (comment.created_at, comment.id), reverse=True)[:5],

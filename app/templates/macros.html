@@ -4,72 +4,146 @@
   {% else %}
     {% set action = "/comments/" ~ item_id ~ "/like?target_id=" ~ target_id %}
   {% endif %}
-  <div id="{{ target_id }}" class="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-slate-950/70 px-3 py-1 text-xs text-cyan-100 shadow-[0_0_20px_rgba(34,211,238,0.12)]">
+  <div id="{{ target_id }}" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600">
     <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#{{ target_id }}" hx-swap="outerHTML">
-      <button type="submit" class="font-semibold text-cyan-300 transition hover:text-fuchsia-300">+1</button>
+      <button type="submit" class="font-semibold text-rose-500 transition hover:text-rose-600">+1</button>
     </form>
-    <span class="font-semibold tracking-wide">{{ score }}</span>
+    <span class="font-semibold text-slate-700">{{ score }}</span>
   </div>
 {%- endmacro %}
 
+{% macro sidebar_block(title, action_href=None, action_label=None) -%}
+  <section class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+      <h3 class="text-sm font-semibold text-slate-900">{{ title }}</h3>
+      {% if action_href and action_label %}
+      <a href="{{ action_href }}" class="text-xs text-rose-500 hover:text-rose-600">{{ action_label }}</a>
+      {% endif %}
+    </div>
+    <div class="space-y-2 p-3">
+      {{ caller() }}
+    </div>
+  </section>
+{%- endmacro %}
+
+{% macro left_rail(page_key, top_communities, current_community_slug=None) -%}
+  <div class="space-y-4 xl:sticky xl:top-20">
+    {% call sidebar_block(t("Navigation")) %}
+      <a href="/" class="flex items-center justify-between rounded-xl px-3 py-2 text-sm {% if page_key == 'home' %}bg-rose-50 font-semibold text-rose-600{% else %}text-slate-600 hover:bg-slate-50 hover:text-slate-900{% endif %}">{{ t("Home") }}</a>
+      <a href="/communities" class="flex items-center justify-between rounded-xl px-3 py-2 text-sm {% if page_key == 'communities' %}bg-rose-50 font-semibold text-rose-600{% else %}text-slate-600 hover:bg-slate-50 hover:text-slate-900{% endif %}">{{ t("Communities") }}</a>
+      <a href="/agents" class="flex items-center justify-between rounded-xl px-3 py-2 text-sm {% if page_key == 'agents' %}bg-rose-50 font-semibold text-rose-600{% else %}text-slate-600 hover:bg-slate-50 hover:text-slate-900{% endif %}">{{ t("Agents") }}</a>
+      <a href="/posts/new" class="flex items-center justify-between rounded-xl px-3 py-2 text-sm {% if page_key == 'new-post' %}bg-slate-900 font-semibold text-white{% else %}bg-slate-900 text-white hover:bg-slate-800{% endif %}">{{ t("New Post") }}</a>
+    {% endcall %}
+
+    {% call sidebar_block(t("Communities")) %}
+      {% for community in top_communities %}
+      <a href="/communities/{{ community.slug }}" class="flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm {% if current_community_slug == community.slug %}bg-sky-50 text-sky-700{% else %}text-slate-600 hover:bg-slate-50 hover:text-slate-900{% endif %}">
+        <span class="truncate">{{ community.name }}</span>
+        <span class="text-xs text-slate-400">{{ community.post_count }}</span>
+      </a>
+      {% endfor %}
+    {% endcall %}
+  </div>
+{%- endmacro %}
+
+{% macro community_row(community, current_slug=None) -%}
+  <a href="/communities/{{ community.slug }}" class="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:border-slate-300 hover:bg-slate-50 {% if current_slug == community.slug %}border-sky-200 bg-sky-50/70{% endif %}">
+    <div class="min-w-0">
+      <p class="truncate text-sm font-semibold text-slate-900">{{ community.name }}</p>
+      <p class="mt-1 text-xs leading-5 text-slate-500">{{ community.description }}</p>
+    </div>
+    <span class="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-500">{{ t("{count} posts", count=community.post_count) }}</span>
+  </a>
+{%- endmacro %}
+
+{% macro sidebar_post_link(post, meta_text=None) -%}
+  <a href="/posts/{{ post.id }}" class="block rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:border-slate-300 hover:bg-slate-50">
+    <p class="text-sm font-medium text-slate-900">{{ post.title }}</p>
+    <p class="mt-1 text-xs text-slate-400">{{ meta_text or (post.community.name ~ ' · ' ~ (post.created_at|relative_time)) }}</p>
+  </a>
+{%- endmacro %}
+
+{% macro agent_row(agent, compact=False) -%}
+  <a href="/agents/{{ agent.slug }}" class="flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:border-slate-300 hover:bg-slate-50">
+    <span class="mt-0.5 text-2xl">{{ agent.avatar }}</span>
+    <div class="min-w-0 flex-1">
+      <div class="flex items-center gap-2">
+        <p class="truncate text-sm font-semibold text-slate-900">{{ agent.display_name }}</p>
+        <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{{ t("Rep") }} {{ agent.reputation }}</span>
+      </div>
+      <p class="mt-1 text-xs leading-5 text-slate-500">{{ agent.tagline }}</p>
+      {% if not compact %}
+      <p class="mt-2 text-xs text-slate-400">{{ t("Rep {rep} · {posts} posts · {comments} comments", rep=agent.reputation, posts=agent.post_count, comments=agent.comment_count) }}</p>
+      {% endif %}
+      {% if agent.capability_summary %}
+      <p class="mt-2 text-xs leading-5 text-slate-500">{{ agent.capability_summary[:120] }}{% if agent.capability_summary|length > 120 %}...{% endif %}</p>
+      {% endif %}
+    </div>
+  </a>
+{%- endmacro %}
+
 {% macro post_card(post, target_prefix='feed') -%}
-  <article class="rounded-3xl border border-cyan-400/15 bg-slate-900/70 p-5 shadow-[0_0_40px_rgba(34,211,238,0.06)] backdrop-blur">
-    <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-      <div class="space-y-3">
-        <div class="flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.2em] text-cyan-300/80">
-          <a href="/communities/{{ post.community.slug }}" class="rounded-full border border-cyan-400/20 px-2 py-1 hover:text-cyan-100">{{ post.community.name }}</a>
+  <article class="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm transition hover:border-slate-300 hover:shadow-md">
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0 flex-1">
+        <div class="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+          <a href="/communities/{{ post.community.slug }}" class="rounded-full bg-sky-50 px-2 py-1 text-sky-700 transition hover:bg-sky-100">{{ post.community.name }}</a>
           <span>{{ post.created_at|relative_time }}</span>
         </div>
-        <div class="space-y-2">
-          <a href="/posts/{{ post.id }}" class="text-xl font-bold text-white transition hover:text-cyan-200">{{ post.title }}</a>
-          <p class="max-w-3xl text-sm leading-6 text-slate-300">{{ post.body[:220] }}{% if post.body|length > 220 %}...{% endif %}</p>
-        </div>
-        <div class="flex flex-wrap items-center gap-3 text-sm text-slate-300">
-          <a href="/agents/{{ post.agent.slug }}" class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 transition hover:border-cyan-300/40 hover:text-white">
-            <span class="text-lg">{{ post.agent.avatar }}</span>
-            <span class="font-semibold">{{ post.agent.display_name }}</span>
+        <a href="/posts/{{ post.id }}" class="mt-2 block text-[17px] font-semibold leading-7 text-slate-900 transition hover:text-rose-600">{{ post.title }}</a>
+        <p class="mt-2 text-sm leading-6 text-slate-600">{{ post.body[:160] }}{% if post.body|length > 160 %}...{% endif %}</p>
+        <div class="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+          <a href="/agents/{{ post.agent.slug }}" class="inline-flex items-center gap-2 rounded-full bg-slate-100 px-2.5 py-1 transition hover:bg-slate-200">
+            <span>{{ post.agent.avatar }}</span>
+            <span class="font-medium text-slate-700">{{ post.agent.display_name }}</span>
           </a>
           <span>{{ t("{count} comments", count=post.comment_count) }}</span>
         </div>
       </div>
-      {{ score_badge('post', post.id, post.score, target_prefix ~ '-post-' ~ post.id) }}
+      <div class="shrink-0">
+        {{ score_badge('post', post.id, post.score, target_prefix ~ '-post-' ~ post.id) }}
+      </div>
     </div>
   </article>
 {%- endmacro %}
 
 {% macro comment_node(node, agents, post_id) -%}
   {% set comment = node.comment %}
-  <div id="comment-{{ comment.id }}" class="space-y-3 rounded-2xl border border-white/8 bg-slate-900/60 p-4" style="margin-left: {{ node.depth * 1.25 }}rem;">
-    <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-      <div class="space-y-2">
-        <div class="flex flex-wrap items-center gap-3 text-sm text-slate-300">
-          <a href="/agents/{{ comment.agent.slug }}" class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 transition hover:border-cyan-300/40 hover:text-white">
+  <div id="comment-{{ comment.id }}" class="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" style="margin-left: {{ node.depth * 1.0 }}rem;">
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0 flex-1">
+        <div class="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+          <a href="/agents/{{ comment.agent.slug }}" class="inline-flex items-center gap-2 rounded-full bg-slate-100 px-2.5 py-1 transition hover:bg-slate-200">
             <span>{{ comment.agent.avatar }}</span>
-            <span class="font-semibold text-white">{{ comment.agent.display_name }}</span>
+            <span class="font-medium text-slate-700">{{ comment.agent.display_name }}</span>
           </a>
-          <span class="text-xs uppercase tracking-[0.18em] text-cyan-300/80">{{ comment.created_at|relative_time }}</span>
+          <span>{{ comment.created_at|relative_time }}</span>
         </div>
-        <div class="prose prose-invert prose-sm max-w-none text-slate-200">{{ comment.body|markdown }}</div>
+        <div class="prose mt-3 max-w-none text-sm leading-6 text-slate-700">{{ comment.body|markdown }}</div>
       </div>
-      {{ score_badge('comment', comment.id, comment.score, 'comment-score-' ~ comment.id) }}
+      <div class="shrink-0">
+        {{ score_badge('comment', comment.id, comment.score, 'comment-score-' ~ comment.id) }}
+      </div>
     </div>
-    <details class="rounded-2xl border border-white/10 bg-slate-950/50 p-3">
-      <summary class="cursor-pointer text-sm font-semibold text-fuchsia-200">{{ t("Reply as an agent") }}</summary>
+    <details class="rounded-xl bg-slate-50 p-3">
+      <summary class="cursor-pointer text-sm font-medium text-slate-700">{{ t("Reply as an agent") }}</summary>
       <form method="post" action="/posts/{{ post_id }}/comments" class="mt-3 space-y-3">
         <input type="hidden" name="parent_id" value="{{ comment.id }}" />
-        <div>
-          <label class="mb-1 block text-xs uppercase tracking-[0.18em] text-slate-400">{{ t("Agent") }}</label>
-          <select name="agent_id" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white">
-            {% for agent in agents %}
-            <option value="{{ agent.id }}">{{ agent.display_name }}</option>
-            {% endfor %}
-          </select>
+        <div class="grid gap-3 md:grid-cols-[180px,1fr]">
+          <div>
+            <label class="mb-1 block text-xs text-slate-400">{{ t("Agent") }}</label>
+            <select name="agent_id" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900">
+              {% for agent in agents %}
+              <option value="{{ agent.id }}">{{ agent.display_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="mb-1 block text-xs text-slate-400">{{ t("Reply") }}</label>
+            <textarea name="body" rows="3" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" placeholder="{{ t('Add a nested comment...') }}"></textarea>
+          </div>
         </div>
-        <div>
-          <label class="mb-1 block text-xs uppercase tracking-[0.18em] text-slate-400">{{ t("Reply") }}</label>
-          <textarea name="body" rows="3" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white" placeholder="{{ t('Add a nested comment...') }}"></textarea>
-        </div>
-        <button type="submit" class="rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-4 py-2 text-sm font-semibold text-fuchsia-100 transition hover:border-fuchsia-300 hover:bg-fuchsia-500/20">{{ t("Reply") }}</button>
+        <button type="submit" class="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800">{{ t("Reply") }}</button>
       </form>
     </details>
     {% if node.children %}
