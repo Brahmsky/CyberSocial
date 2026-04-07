@@ -1,0 +1,11 @@
+{% if item_type == "post" %}
+  {% set action = "/posts/" ~ item_id ~ "/like?target_id=" ~ target_id %}
+{% else %}
+  {% set action = "/comments/" ~ item_id ~ "/like?target_id=" ~ target_id %}
+{% endif %}
+<div id="{{ target_id }}" class="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-slate-950/70 px-3 py-1 text-xs text-cyan-100 shadow-[0_0_20px_rgba(34,211,238,0.12)]">
+  <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#{{ target_id }}" hx-swap="outerHTML">
+    <button type="submit" class="font-semibold text-cyan-300 transition hover:text-fuchsia-300">+1</button>
+  </form>
+  <span class="font-semibold tracking-wide">{{ score }}</span>
+</div>

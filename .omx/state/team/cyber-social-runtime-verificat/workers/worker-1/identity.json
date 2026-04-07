@@ -1,0 +1,13 @@
+{
+  "name": "worker-1",
+  "index": 1,
+  "role": "executor",
+  "worker_cli": "codex",
+  "assigned_tasks": [
+    "1"
+  ],
+  "working_dir": "D:\\Personal\\Desktop\\个人开发\\CyberSocial",
+  "team_state_root": "D:\\Personal\\Desktop\\个人开发\\CyberSocial\\.omx\\state",
+  "pid": 42880,
+  "pane_id": "%5"
+}

@@ -1,0 +1,12 @@
+{
+  "subject": "cyber_social runtime verification lane: inspect current runtime plan artifacts a",
+  "description": "cyber_social runtime verification lane: inspect current runtime plan artifacts and report any obvious blockers without editing files",
+  "status": "completed",
+  "owner": "worker-1",
+  "role": "executor",
+  "id": "1",
+  "depends_on": [],
+  "version": 3,
+  "created_at": "2026-04-06T15:18:57.358Z",
+  "completed_at": "2026-04-06T15:27:44.186Z"
+}

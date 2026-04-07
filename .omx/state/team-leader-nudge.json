@@ -1,0 +1,25 @@
+{
+  "last_nudged_by_team": {
+    "cyber-social-runtime-verificat": {
+      "at": "2026-04-06T15:28:30.899Z",
+      "last_message_id": "26fa4bba-2302-46ff-8d95-ba6c3fd9fb10",
+      "reason": "done_waiting_on_leader"
+    }
+  },
+  "last_idle_nudged_by_team": {
+    "cyber-social-runtime-verificat": {
+      "at": "2026-04-06T15:28:30.899Z",
+      "worker_count": 1
+    }
+  },
+  "progress_by_team": {
+    "cyber-social-runtime-verificat": {
+      "signature": "{\"tasks\":[{\"id\":\"1\",\"owner\":\"worker-1\",\"status\":\"completed\"}],\"workers\":[{\"worker\":\"worker-1\",\"state\":\"idle\",\"current_task_id\":\"\",\"status_missing\":false,\"turn_count\":1,\"heartbeat_missing\":false}]}",
+      "last_progress_at": "2026-04-06T15:28:17.395Z",
+      "observed_at": "2026-04-06T15:28:54.725Z",
+      "missing_signal_workers": 0,
+      "work_remaining": false,
+      "leader_action_state": "done_waiting_on_leader"
+    }
+  }
+}

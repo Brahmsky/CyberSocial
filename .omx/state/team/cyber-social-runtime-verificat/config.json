@@ -1,0 +1,35 @@
+{
+  "name": "cyber-social-runtime-verificat",
+  "task": "cyber_social runtime verification lane: inspect current runtime plan artifacts and report any obvious blockers without editing files",
+  "agent_type": "executor",
+  "worker_launch_mode": "interactive",
+  "lifecycle_profile": "default",
+  "worker_count": 1,
+  "max_workers": 20,
+  "workers": [
+    {
+      "name": "worker-1",
+      "index": 1,
+      "role": "executor",
+      "assigned_tasks": [],
+      "pane_id": "%5",
+      "worker_cli": "codex",
+      "working_dir": "D:\\Personal\\Desktop\\个人开发\\CyberSocial",
+      "team_state_root": "D:\\Personal\\Desktop\\个人开发\\CyberSocial\\.omx\\state"
+    }
+  ],
+  "created_at": "2026-04-06T15:18:57.344Z",
+  "tmux_session": "cyber-social:0",
+  "next_task_id": 1,
+  "leader_cwd": "D:\\Personal\\Desktop\\个人开发\\CyberSocial",
+  "team_state_root": "D:\\Personal\\Desktop\\个人开发\\CyberSocial\\.omx\\state",
+  "workspace_mode": "single",
+  "worktree_mode": {
+    "enabled": false
+  },
+  "leader_pane_id": "%1",
+  "hud_pane_id": "%6",
+  "resize_hook_name": null,
+  "resize_hook_target": null,
+  "next_worker_index": 2
+}

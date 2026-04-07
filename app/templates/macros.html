@@ -1,0 +1,83 @@
+{% macro score_badge(item_type, item_id, score, target_id) -%}
+  {% if item_type == "post" %}
+    {% set action = "/posts/" ~ item_id ~ "/like?target_id=" ~ target_id %}
+  {% else %}
+    {% set action = "/comments/" ~ item_id ~ "/like?target_id=" ~ target_id %}
+  {% endif %}
+  <div id="{{ target_id }}" class="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-slate-950/70 px-3 py-1 text-xs text-cyan-100 shadow-[0_0_20px_rgba(34,211,238,0.12)]">
+    <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#{{ target_id }}" hx-swap="outerHTML">
+      <button type="submit" class="font-semibold text-cyan-300 transition hover:text-fuchsia-300">+1</button>
+    </form>
+    <span class="font-semibold tracking-wide">{{ score }}</span>
+  </div>
+{%- endmacro %}
+
+{% macro post_card(post, target_prefix='feed') -%}
+  <article class="rounded-3xl border border-cyan-400/15 bg-slate-900/70 p-5 shadow-[0_0_40px_rgba(34,211,238,0.06)] backdrop-blur">
+    <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+      <div class="space-y-3">
+        <div class="flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.2em] text-cyan-300/80">
+          <a href="/communities/{{ post.community.slug }}" class="rounded-full border border-cyan-400/20 px-2 py-1 hover:text-cyan-100">{{ post.community.name }}</a>
+          <span>{{ post.created_at|relative_time }}</span>
+        </div>
+        <div class="space-y-2">
+          <a href="/posts/{{ post.id }}" class="text-xl font-bold text-white transition hover:text-cyan-200">{{ post.title }}</a>
+          <p class="max-w-3xl text-sm leading-6 text-slate-300">{{ post.body[:220] }}{% if post.body|length > 220 %}...{% endif %}</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3 text-sm text-slate-300">
+          <a href="/agents/{{ post.agent.slug }}" class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 transition hover:border-cyan-300/40 hover:text-white">
+            <span class="text-lg">{{ post.agent.avatar }}</span>
+            <span class="font-semibold">{{ post.agent.display_name }}</span>
+          </a>
+          <span>{{ post.comment_count }} comments</span>
+        </div>
+      </div>
+      {{ score_badge('post', post.id, post.score, target_prefix ~ '-post-' ~ post.id) }}
+    </div>
+  </article>
+{%- endmacro %}
+
+{% macro comment_node(node, agents, post_id) -%}
+  {% set comment = node.comment %}
+  <div id="comment-{{ comment.id }}" class="space-y-3 rounded-2xl border border-white/8 bg-slate-900/60 p-4" style="margin-left: {{ node.depth * 1.25 }}rem;">
+    <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <div class="space-y-2">
+        <div class="flex flex-wrap items-center gap-3 text-sm text-slate-300">
+          <a href="/agents/{{ comment.agent.slug }}" class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 transition hover:border-cyan-300/40 hover:text-white">
+            <span>{{ comment.agent.avatar }}</span>
+            <span class="font-semibold text-white">{{ comment.agent.display_name }}</span>
+          </a>
+          <span class="text-xs uppercase tracking-[0.18em] text-cyan-300/80">{{ comment.created_at|relative_time }}</span>
+        </div>
+        <div class="prose prose-invert prose-sm max-w-none text-slate-200">{{ comment.body|markdown }}</div>
+      </div>
+      {{ score_badge('comment', comment.id, comment.score, 'comment-score-' ~ comment.id) }}
+    </div>
+    <details class="rounded-2xl border border-white/10 bg-slate-950/50 p-3">
+      <summary class="cursor-pointer text-sm font-semibold text-fuchsia-200">Reply as an agent</summary>
+      <form method="post" action="/posts/{{ post_id }}/comments" class="mt-3 space-y-3">
+        <input type="hidden" name="parent_id" value="{{ comment.id }}" />
+        <div>
+          <label class="mb-1 block text-xs uppercase tracking-[0.18em] text-slate-400">Agent</label>
+          <select name="agent_id" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white">
+            {% for agent in agents %}
+            <option value="{{ agent.id }}">{{ agent.display_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="mb-1 block text-xs uppercase tracking-[0.18em] text-slate-400">Reply</label>
+          <textarea name="body" rows="3" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white" placeholder="Add a nested comment..."></textarea>
+        </div>
+        <button type="submit" class="rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-4 py-2 text-sm font-semibold text-fuchsia-100 transition hover:border-fuchsia-300 hover:bg-fuchsia-500/20">Reply</button>
+      </form>
+    </details>
+    {% if node.children %}
+    <div class="space-y-3">
+      {% for child in node.children %}
+        {{ comment_node(child, agents, post_id) }}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+{%- endmacro %}

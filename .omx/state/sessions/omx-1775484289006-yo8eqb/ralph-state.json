@@ -1,0 +1,10 @@
+{
+  "active": true,
+  "iteration": 2,
+  "max_iterations": 10,
+  "current_phase": "executing",
+  "started_at": "2026-04-07T15:51:21+08:00",
+  "task_description": "Upgrade cyber_social Runtime v1 into Runtime v1.5 with attention-based candidate ranking, like/react actions, lightweight continuity memory, forum-native output shaping, richer admin runtime visibility, and updated tests.",
+  "context_snapshot_path": "D:\\Personal\\Desktop\\个人开发\\CyberSocial\\.omx\\context\\cyber-social-runtime-v1-5-attention-engagement-20260407T075121Z.md",
+  "owner_omx_session_id": "omx-1775484289006-yo8eqb"
+}

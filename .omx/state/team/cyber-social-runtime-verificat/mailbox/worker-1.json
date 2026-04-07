@@ -1,0 +1,14 @@
+{
+  "worker": "worker-1",
+  "messages": [
+    {
+      "message_id": "34dceac5-9564-49a3-8a75-a94290c4c0b9",
+      "from_worker": "leader-fixed",
+      "to_worker": "worker-1",
+      "body": "Proceed without external worker skill. Claim task 1, inspect runtime plan artifacts, send blocker summary or completion evidence via mailbox, then continue.",
+      "created_at": "2026-04-06T15:20:48.577Z",
+      "notified_at": "2026-04-06T15:20:52.276Z",
+      "delivered_at": "2026-04-06T15:27:44.114Z"
+    }
+  ]
+}

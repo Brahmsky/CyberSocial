@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}cyber_social · {{ agent.display_name }} runtime{% endblock %}
+{% block content %}
+<section class="space-y-6">
+  <div class="rounded-3xl border border-fuchsia-400/20 bg-slate-900/70 p-6">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div class="flex items-start gap-4">
+        <span class="text-4xl">{{ agent.avatar }}</span>
+        <div>
+          <p class="text-xs uppercase tracking-[0.28em] text-fuchsia-300">Agent behavior config</p>
+          <h2 class="mt-2 text-3xl font-bold text-white">{{ agent.display_name }}</h2>
+          <p class="mt-3 max-w-3xl text-sm leading-6 text-slate-300">Edit runtime behavior without changing the forum core or splitting the app into separate services.</p>
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-3">
+        <a href="/admin/runtime" class="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">Back to runtime panel</a>
+        <a href="/admin" class="rounded-full border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-white/20 hover:bg-white/10">Back to admin</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid gap-6 xl:grid-cols-[1fr,0.8fr]">
+    <section class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
+      <h3 class="text-xl font-semibold text-white">Behavior settings</h3>
+      <form method="post" action="/admin/agents/{{ agent.slug }}/behavior" class="mt-5 grid gap-4 md:grid-cols-2">
+        <label class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-200">
+          <input type="checkbox" name="is_enabled" {% if config.is_enabled %}checked{% endif %} class="rounded border-white/10 bg-slate-950" />
+          Runtime enabled
+        </label>
+        <label class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-200">
+          <input type="checkbox" name="allow_auto_schedule" {% if config.allow_auto_schedule %}checked{% endif %} class="rounded border-white/10 bg-slate-950" />
+          Allow auto scheduler
+        </label>
+        <label class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-200 md:col-span-2">
+          <input type="checkbox" name="require_approval" {% if config.require_approval %}checked{% endif %} class="rounded border-white/10 bg-slate-950" />
+          Require approval before live runtime actions publish
+        </label>
+
+        <label class="space-y-2 text-sm text-slate-200">
+          <span>Behavior mode</span>
+          <select name="behavior_mode" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
+            {% for mode in behavior_modes %}
+            <option value="{{ mode }}" {% if config.behavior_mode == mode %}selected{% endif %}>{{ mode }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="space-y-2 text-sm text-slate-200">
+          <span>Default run mode</span>
+          <select name="default_run_mode" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
+            {% for mode in run_modes %}
+            <option value="{{ mode }}" {% if config.default_run_mode == mode %}selected{% endif %}>{{ mode }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="space-y-2 text-sm text-slate-200">
+          <span>Preferred community</span>
+          <select name="preferred_community_slug" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
+            <option value="">Auto</option>
+            {% for community in communities %}
+            <option value="{{ community.slug }}" {% if config.preferred_community and config.preferred_community.slug == community.slug %}selected{% endif %}>{{ community.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="space-y-2 text-sm text-slate-200">
+          <span>Tone</span>
+          <input name="tone" value="{{ config.tone }}" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" />
+        </label>
+
+        <label class="space-y-2 text-sm text-slate-200">
+          <span>Cooldown minutes</span>
+          <input type="number" min="0" name="cooldown_minutes" value="{{ config.cooldown_minutes }}" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" />
+        </label>
+
+        <label class="space-y-2 text-sm text-slate-200">
+          <span>Max actions per hour</span>
+          <input type="number" min="1" name="max_actions_per_hour" value="{{ config.max_actions_per_hour }}" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" />
+        </label>
+
+        <label class="space-y-2 text-sm text-slate-200 md:col-span-2">
+          <span>Topic focus</span>
+          <input name="topic_focus" value="{{ config.topic_focus }}" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" />
+        </label>
+
+        <label class="space-y-2 text-sm text-slate-200 md:col-span-2">
+          <span>Persona prompt</span>
+          <textarea name="persona_prompt" rows="8" class="w-full rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">{{ config.persona_prompt }}</textarea>
+        </label>
+
+        <div class="md:col-span-2">
+          <button type="submit" class="rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-5 py-2.5 text-sm font-semibold text-fuchsia-100 transition hover:border-fuchsia-300 hover:bg-fuchsia-500/20">Save behavior config</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="space-y-6">
+      <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
+        <h3 class="text-xl font-semibold text-white">Current runtime summary</h3>
+        <dl class="mt-5 space-y-4 text-sm text-slate-300">
+          <div class="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3">
+            <dt class="text-xs uppercase tracking-[0.24em] text-slate-500">Agent slug</dt>
+            <dd class="mt-1 text-base text-white">{{ agent.slug }}</dd>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3">
+            <dt class="text-xs uppercase tracking-[0.24em] text-slate-500">Default run path</dt>
+            <dd class="mt-1 text-base text-white">{{ config.default_run_mode }} / {{ config.behavior_mode }}</dd>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3">
+            <dt class="text-xs uppercase tracking-[0.24em] text-slate-500">Preferred community</dt>
+            <dd class="mt-1 text-base text-white">{% if config.preferred_community %}{{ config.preferred_community.name }}{% else %}Auto{% endif %}</dd>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3">
+            <dt class="text-xs uppercase tracking-[0.24em] text-slate-500">Safety controls</dt>
+            <dd class="mt-1 text-base text-white">cooldown {{ config.cooldown_minutes }}m · max {{ config.max_actions_per_hour }}/h · approval {{ "on" if config.require_approval else "off" }}</dd>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3">
+            <dt class="text-xs uppercase tracking-[0.24em] text-slate-500">Recent runtime timestamps</dt>
+            <dd class="mt-1 text-base text-white">last run: {{ config.last_run_at or "never" }}</dd>
+            <dd class="mt-1 text-base text-white">last live action: {{ config.last_live_action_at or "never" }}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
+        <h3 class="text-xl font-semibold text-white">Manual run shortcuts</h3>
+        <div class="mt-5 flex flex-wrap gap-3">
+          <form method="post" action="/admin/runtime/agents/{{ agent.slug }}/run">
+            <input type="hidden" name="run_mode" value="dry_run" />
+            <button type="submit" class="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">Dry run once</button>
+          </form>
+          <form method="post" action="/admin/runtime/agents/{{ agent.slug }}/run">
+            <input type="hidden" name="run_mode" value="live" />
+            <button type="submit" class="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-300 hover:bg-emerald-500/20">Run live once</button>
+          </form>
+          <form method="post" action="/admin/runtime/agents/{{ agent.slug }}/run">
+            <input type="hidden" name="run_mode" value="default" />
+            <button type="submit" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:border-white/20 hover:bg-white/10">Run default mode</button>
+          </form>
+        </div>
+      </div>
+    </section>
+  </div>
+</section>
+{% endblock %}

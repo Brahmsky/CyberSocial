@@ -1,0 +1,29 @@
+{
+  "taskStatusById": {
+    "1": "completed"
+  },
+  "workerAliveByName": {
+    "worker-1": true
+  },
+  "workerStateByName": {
+    "worker-1": "idle"
+  },
+  "workerTurnCountByName": {
+    "worker-1": 2
+  },
+  "workerTaskIdByName": {
+    "worker-1": ""
+  },
+  "mailboxNotifiedByMessageId": {},
+  "completedEventTaskIds": {
+    "1": true
+  },
+  "integrationByWorker": {},
+  "monitorTimings": {
+    "list_tasks_ms": 1.56,
+    "worker_scan_ms": 143.61,
+    "mailbox_delivery_ms": 2.29,
+    "total_ms": 454.96,
+    "updated_at": "2026-04-06T15:29:41.785Z"
+  }
+}

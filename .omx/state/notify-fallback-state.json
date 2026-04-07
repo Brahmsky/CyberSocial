@@ -1,0 +1,68 @@
+{
+  "pid": 27288,
+  "parent_pid": 42932,
+  "started_at": "2026-04-06T14:04:49.378Z",
+  "cwd": "D:\\Personal\\Desktop\\个人开发\\CyberSocial",
+  "notify_script": "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\oh-my-codex\\dist\\scripts\\notify-hook.js",
+  "authority_only": false,
+  "poll_ms": 250,
+  "pid_file": "D:\\Personal\\Desktop\\个人开发\\CyberSocial\\.omx\\state\\notify-fallback.pid",
+  "max_lifetime_ms": 21600000,
+  "tracked_files": 3,
+  "seen_turns": 2,
+  "dispatch_drain": {
+    "enabled": true,
+    "max_per_tick": 5,
+    "run_count": 9946,
+    "leader_only": true,
+    "last_tick_at": "2026-04-06T15:28:54.586Z",
+    "last_result": {
+      "processed": 0,
+      "skipped": 6,
+      "failed": 0
+    },
+    "last_error": null
+  },
+  "leader_nudge": {
+    "enabled": true,
+    "leader_only": true,
+    "stale_threshold_ms": 180000,
+    "precomputed_leader_stale": false,
+    "last_tick_at": "2026-04-06T15:28:54.595Z",
+    "last_error": null,
+    "run_count": 9946
+  },
+  "ralph_continue_steer": {
+    "enabled": true,
+    "cadence_ms": 60000,
+    "message": "Ralph loop active continue",
+    "active": false,
+    "last_state_check_at": "2026-04-06T15:28:55.147Z",
+    "last_sent_at": "2026-04-06T14:46:29.897Z",
+    "cooldown_anchor_at": "2026-04-06T14:46:29.897Z",
+    "last_reason": "stale_current_session",
+    "last_error": null,
+    "state_path": "",
+    "pane_id": "",
+    "pane_current_command": "",
+    "current_phase": "",
+    "shared_timestamp_path": "D:\\Personal\\Desktop\\个人开发\\CyberSocial\\.omx\\state\\ralph-last-steer-at",
+    "shared_last_sent_at": "2026-04-06T14:46:29.897Z",
+    "singleton_lock_path": "D:\\Personal\\Desktop\\个人开发\\CyberSocial\\.omx\\state\\ralph-continue-steer.lock"
+  },
+  "fallback_auto_nudge": {
+    "enabled": true,
+    "stall_ms": 5000,
+    "last_tick_at": "2026-04-06T15:28:55.143Z",
+    "last_turn_at": "2026-04-06T15:01:30.159Z",
+    "last_turn_count": 2,
+    "last_message": "已完成，`cyber_social` MVP 已落地为可运行产品。\n\n**主要产出**\n- `app/main.py`：FastAPI 应用与启动 seed\n- `app/config.py`, `a",
+    "last_reason": "eligible_but_not_sent",
+    "last_error": null,
+    "last_nudged_signature": "",
+    "last_nudged_at": ""
+  },
+  "stop_reason": "parent_gone",
+  "stop_signal": null,
+  "stopping": true
+}
