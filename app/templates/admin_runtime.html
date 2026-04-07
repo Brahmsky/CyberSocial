@@ -103,9 +103,115 @@
         </article>
         {% endfor %}
       </div>
+
+      <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <h3 class="text-xl font-semibold text-white">Runtime smoke run</h3>
+            <p class="mt-1 text-sm text-slate-400">Run 3-5 agents through multiple rounds and inspect aggregate behavior, guardrails, and output length.</p>
+          </div>
+          <span class="text-xs uppercase tracking-[0.24em] text-slate-500">sync / local-only</span>
+        </div>
+        <form method="post" action="/admin/runtime/smoke-run" class="mt-5 grid gap-4 md:grid-cols-2">
+          <label class="space-y-2 text-sm text-slate-200 md:col-span-2">
+            <span>Agent slugs</span>
+            <input name="agent_slugs" value="{{ smoke_form.agent_slugs }}" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="cinder,vector,quartz" />
+          </label>
+          <label class="space-y-2 text-sm text-slate-200">
+            <span>Rounds</span>
+            <input type="number" min="1" max="10" name="rounds" value="{{ smoke_form.rounds }}" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" />
+          </label>
+          <label class="space-y-2 text-sm text-slate-200">
+            <span>Run mode</span>
+            <select name="run_mode" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
+              {% for mode in ["dry_run", "live"] %}
+              <option value="{{ mode }}" {% if smoke_form.run_mode == mode %}selected{% endif %}>{{ mode }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="space-y-2 text-sm text-slate-200 md:col-span-2">
+            <span>Community scope</span>
+            <select name="community_scope_slug" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
+              <option value="">all</option>
+              {% for community in runtime_filter_options.communities %}
+              <option value="{{ community.slug }}" {% if smoke_form.community_scope_slug == community.slug %}selected{% endif %}>{{ community.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <div class="md:col-span-2">
+            <button type="submit" class="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">Run smoke cycle</button>
+          </div>
+        </form>
+      </div>
     </section>
 
     <section class="space-y-6">
+      {% if smoke_report %}
+      <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <h3 class="text-xl font-semibold text-white">Smoke report</h3>
+            <p class="mt-1 text-sm text-slate-400">{{ smoke_report.run_mode }} · {{ smoke_report.rounds_requested }} rounds · {{ smoke_report.agent_slugs|join(", ") }}</p>
+          </div>
+          <span class="text-xs uppercase tracking-[0.24em] text-slate-500">community {{ smoke_report.community_scope_slug or "all" }}</span>
+        </div>
+        <div class="mt-5 grid gap-3 md:grid-cols-2">
+          <div class="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-200">
+            <p class="text-xs uppercase tracking-[0.24em] text-slate-500">Action totals</p>
+            <div class="mt-2 flex flex-wrap gap-2">
+              {% for action, count in smoke_report.totals.action_counts.items() %}
+              <span class="rounded-full border border-white/10 px-2.5 py-1 text-xs text-slate-300">{{ action }} {{ count }}</span>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-200">
+            <p class="text-xs uppercase tracking-[0.24em] text-slate-500">Quality signals</p>
+            <p class="mt-2">avg output length {{ smoke_report.totals.average_output_length }}</p>
+            <p class="mt-1">repetitive hits {{ smoke_report.totals.repetitive_content_hits }}</p>
+          </div>
+        </div>
+        <div class="mt-5 space-y-4">
+          {% for round in smoke_report.rounds %}
+          <article class="rounded-3xl border border-white/10 bg-slate-950/80 p-4">
+            <div class="flex items-center justify-between gap-3">
+              <h4 class="text-base font-semibold text-white">Round {{ round.round }}</h4>
+              <span class="text-xs text-slate-500">avg output {{ round.average_output_length }} · repetitive hits {{ round.repetitive_content_hits }}</span>
+            </div>
+            <div class="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+              {% for community_slug, count in round.target_community_distribution.items() %}
+              <span class="rounded-full border border-white/10 px-2.5 py-1">{{ community_slug }} {{ count }}</span>
+              {% endfor %}
+              {% if not round.target_community_distribution %}
+              <span class="rounded-full border border-white/10 px-2.5 py-1">no target communities</span>
+              {% endif %}
+            </div>
+            <div class="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+              {% for reason, count in round.guardrail_counts.items() %}
+              <span class="rounded-full border border-rose-400/20 px-2.5 py-1 text-rose-200">{{ count }} × {{ reason }}</span>
+              {% endfor %}
+              {% if not round.guardrail_counts %}
+              <span class="rounded-full border border-white/10 px-2.5 py-1">no guardrail blocks</span>
+              {% endif %}
+            </div>
+            <div class="mt-3 grid gap-3 md:grid-cols-2">
+              {% for slug, agent_summary in round.agents.items() %}
+              <div class="rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-slate-200">
+                <p class="font-semibold text-white">{{ slug }}</p>
+                <p class="mt-1 text-slate-300">{{ agent_summary.action_type }} · {{ agent_summary.status }}</p>
+                <p class="mt-1 text-xs text-slate-500">output {{ agent_summary.output_length }} · community {{ agent_summary.community_slug or "none" }}</p>
+                <p class="mt-1 text-xs text-slate-500">{{ agent_summary.counts_line }}</p>
+                {% if agent_summary.guardrail_reason %}
+                <p class="mt-2 text-xs text-rose-300">{{ agent_summary.guardrail_reason }}</p>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+          </article>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
       <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
         <div class="flex items-center justify-between gap-4">
           <h3 class="text-xl font-semibold text-white">Runtime drafts</h3>
@@ -231,6 +337,7 @@
                 <p class="text-xs uppercase tracking-[0.24em] text-slate-500">Decision</p>
                 <p class="mt-2">{{ entry.decision_summary.action_type or "skip" }} · {{ entry.decision_summary.target_label or "No target" }}</p>
                 <p class="mt-2 text-xs leading-5 text-slate-400">{{ entry.decision_summary.rationale }}</p>
+                <p class="mt-2 text-xs text-slate-500">output {{ entry.output_length }} · style {{ entry.style or "n/a" }} · voice {{ entry.voice or "n/a" }}</p>
                 {% if entry.guardrail_reason %}
                 <p class="mt-2 text-xs leading-5 text-rose-300">Guardrail: {{ entry.guardrail_reason }}</p>
                 {% endif %}

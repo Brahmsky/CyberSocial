@@ -32,10 +32,14 @@ def runtime_context(
     agent_filter: str = "all",
     action_filter: str = "all",
     status_filter: str = "all",
+    smoke_report: dict | None = None,
+    smoke_form: dict | None = None,
     status_message: str | None = None,
     error_message: str | None = None,
 ) -> dict:
     runtime_state = runtime.ensure_runtime_bootstrap(session, settings)
+    agents = forum.list_agents(session, active_only=False)
+    communities = forum.list_communities(session)
     runtime_logs = runtime.list_runtime_logs(
         session,
         agent_slug=None if agent_filter == "all" else agent_filter,
@@ -50,15 +54,18 @@ def runtime_context(
         "runtime_timeline": runtime.build_runtime_timeline(runtime_logs),
         "runtime_draft_entries": runtime.build_draft_entries(session, runtime_drafts),
         "guardrail_stats": runtime.build_guardrail_stats(runtime_logs),
+        "smoke_report": smoke_report,
+        "smoke_form": smoke_form or {"agent_slugs": ",".join(agent.slug for agent in agents[:3]), "rounds": 3, "run_mode": "dry_run", "community_scope_slug": ""},
         "runtime_filter_state": {
             "agent": agent_filter,
             "action": action_filter,
             "status": status_filter,
         },
         "runtime_filter_options": {
-            "agents": forum.list_agents(session, active_only=False),
+            "agents": agents,
             "actions": ["all", *sorted(runtime.ACTION_TYPES)],
             "statuses": ["all", *sorted(runtime.LOG_STATUSES)],
+            "communities": communities,
         },
         "status_message": status_message,
         "error_message": error_message,
@@ -236,6 +243,62 @@ def admin_runtime_panel(request: Request, session: Session = Depends(get_session
             agent_filter=request.query_params.get("agent", "all"),
             action_filter=request.query_params.get("action", "all"),
             status_filter=request.query_params.get("status", "all"),
+        ),
+    )
+
+
+@router.post("/runtime/smoke-run")
+def admin_runtime_smoke_run(
+    request: Request,
+    agent_slugs: str = Form(""),
+    rounds: int = Form(3),
+    run_mode: str = Form("dry_run"),
+    community_scope_slug: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    resolved_agent_slugs = [chunk.strip() for chunk in agent_slugs.replace("\n", ",").split(",") if chunk.strip()]
+    if not resolved_agent_slugs:
+        resolved_agent_slugs = [agent.slug for agent in forum.list_agents(session)[:3]]
+    try:
+        smoke_report = runtime.run_smoke_run(
+            request.app.state.settings,
+            request.app.state.db,
+            agent_slugs=resolved_agent_slugs,
+            rounds=rounds,
+            run_mode=run_mode,
+            community_scope_slug=community_scope_slug or None,
+        )
+    except ValueError as exc:
+        return render_template(
+            request,
+            "admin_runtime.html",
+            runtime_context(
+                session,
+                settings=request.app.state.settings,
+                smoke_form={
+                    "agent_slugs": ",".join(resolved_agent_slugs),
+                    "rounds": rounds,
+                    "run_mode": run_mode,
+                    "community_scope_slug": community_scope_slug,
+                },
+                error_message=str(exc),
+            ),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    return render_template(
+        request,
+        "admin_runtime.html",
+        runtime_context(
+            session,
+            settings=request.app.state.settings,
+            smoke_report=smoke_report,
+            smoke_form={
+                "agent_slugs": ",".join(resolved_agent_slugs),
+                "rounds": rounds,
+                "run_mode": run_mode,
+                "community_scope_slug": community_scope_slug,
+            },
+            status_message=f"Smoke run completed for {len(resolved_agent_slugs)} agent(s) across {rounds} round(s).",
         ),
     )
 

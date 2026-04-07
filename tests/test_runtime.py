@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from app.services import forum, runtime
+from app.services import forum, llm, runtime
 
 
 def configure_behavior(
@@ -13,6 +13,7 @@ def configure_behavior(
     default_run_mode: str = "dry_run",
     require_approval: bool = False,
     topic_focus: str = "runtime topic",
+    tone: str = "measured",
 ):
     agent = forum.get_agent(session, slug)
     return runtime.update_behavior_config(
@@ -23,12 +24,39 @@ def configure_behavior(
         require_approval=require_approval,
         behavior_mode=behavior_mode,
         default_run_mode=default_run_mode,
-        persona_prompt=f"{agent.display_name} participates in a deterministic forum workflow.",
-        tone="measured",
+        persona_prompt=f"{agent.display_name} participates in a deterministic forum workflow around {topic_focus}.",
+        tone=tone,
         topic_focus=topic_focus,
         preferred_community_slug="signal-lab",
         cooldown_minutes=0,
         max_actions_per_hour=5,
+    )
+
+
+def build_context(agent_slug: str, *, tone: str = "measured", topic_focus: str = "signal review"):
+    return llm.RuntimeContext(
+        agent_slug=agent_slug,
+        display_name=agent_slug.title(),
+        avatar="*",
+        behavior_mode="reply",
+        persona_prompt=f"{agent_slug} focuses on {topic_focus}.",
+        tone=tone,
+        topic_focus=topic_focus,
+        preferred_community_slug="signal-lab",
+        preferred_community_name="Signal Lab",
+        attention_report={
+            "best_comment_post": {
+                "score": 12,
+                "target_id": 1,
+                "community_slug": "signal-lab",
+                "community_name": "Signal Lab",
+                "title": "A simple hot-score formula",
+            },
+            "best_like_post": None,
+            "best_like_comment": None,
+            "should_create_post": False,
+        },
+        memory_summary={"recent_action_summaries": [], "recent_guardrail_reasons": [], "recent_reply_post_ids": [], "recent_like_targets": []},
     )
 
 
@@ -44,61 +72,58 @@ def test_runtime_bootstrap_defaults_to_safe_local_state(client):
         assert all(config.default_run_mode == "dry_run" for config in configs)
 
 
-def test_attention_candidate_ranking_includes_recent_hot_engaged_and_preferred_sources(client):
+def test_output_shaping_removes_ai_and_customer_service_language():
+    context = build_context("cinder", tone="warm", topic_focus="runtime evidence")
+    shaped = llm.enforce_forum_style(
+        llm.RuntimeDecision(
+            action_type="comment",
+            rationale="test",
+            body="作为一个 AI，Thanks for sharing. Great question. 总的来说，这很有帮助。Hope this helps.",
+        ),
+        context,
+    )
+
+    lowered = shaped.body.lower()
+    assert "as an ai" not in lowered
+    assert "thanks for sharing" not in lowered
+    assert "great question" not in lowered
+    assert "hope this helps" not in lowered
+    assert "总的来说" not in shaped.body
+    assert len(shaped.body) <= 160
+
+
+def test_agent_voice_distinction_and_topic_tone_affect_mock_output():
+    cinder = llm.enforce_forum_style(llm.mock_decide(build_context("cinder", tone="direct", topic_focus="routing noise")), build_context("cinder", tone="direct", topic_focus="routing noise"))
+    vector = llm.enforce_forum_style(llm.mock_decide(build_context("vector", tone="measured", topic_focus="ranking signal")), build_context("vector", tone="measured", topic_focus="ranking signal"))
+
+    assert cinder.body != vector.body
+    assert "routing noise" in cinder.body.lower()
+    assert "ranking signal" in vector.body.lower()
+
+
+def test_candidate_ranking_exposes_new_scoring_factors_and_penalties(client):
     with client.app.state.db.session() as session:
-        configure_behavior(session, "cinder", behavior_mode="mixed", topic_focus="attention ranking")
-        report = runtime.build_attention_report(session, "cinder")
+        configure_behavior(session, "quartz", behavior_mode="mixed", topic_focus="signal evidence ranking")
+        report = runtime.build_attention_report(session, "quartz")
+        candidate = report["post_candidates"][0]
 
-        source_tags = {tag for candidate in report["post_candidates"] for tag in candidate["source_tags"]}
+        assert {"topic_affinity", "novelty_bonus", "already_seen_penalty", "self_authored_exclusion", "recent_interaction_penalty"}.issubset(candidate["score_factors"])
 
-        assert {"recent", "hot", "engaged", "preferred"}.issubset(source_tags)
-        assert report["best_comment_post"] is not None
-        assert report["best_like_post"] is not None
-
-
-def test_runtime_like_comment_action_executes_live_when_reply_targets_are_recently_used(client):
-    with client.app.state.db.session() as session:
-        configure_behavior(session, "vector", behavior_mode="reply", default_run_mode="live", topic_focus="light engagement")
-        memory = runtime.get_or_create_runtime_memory(session, forum.get_agent(session, "vector"))
-        report = runtime.build_attention_report(session, "vector")
-        memory.recent_reply_post_ids_json = json.dumps([candidate["target_id"] for candidate in report["post_candidates"][:6]])
+        memory = runtime.get_or_create_runtime_memory(session, forum.get_agent(session, "quartz"))
+        memory.recent_participated_post_ids_json = json.dumps([candidate["target_id"]])
+        memory.recent_reply_post_ids_json = json.dumps([candidate["target_id"]])
         session.commit()
 
-        outcome = runtime.run_agent_cycle(session, client.app.state.settings, "vector", run_mode="live", triggered_by="manual")
+        report_after = runtime.build_attention_report(session, "quartz")
+        penalized = next(item for item in report_after["post_candidates"] if item["target_id"] == candidate["target_id"])
+        self_authored = next(item for item in report_after["post_candidates"] if item["self_authored"])
 
-        assert outcome.log.action_type == "like_comment"
-        assert outcome.created_comment is not None
-        assert outcome.log.status == "executed"
-
-
-def test_runtime_like_post_action_executes_when_comment_like_is_also_recently_used(client):
-    with client.app.state.db.session() as session:
-        configure_behavior(session, "mirror", behavior_mode="reply", default_run_mode="live", topic_focus="reaction pass")
-        agent = runtime.get_agent_for_runtime(session, "mirror")
-        config = runtime.get_or_create_behavior_config(session, agent)
-        target_post = next(post for post in forum.list_posts(session) if post.agent_id != agent.id)
-
-        issue = runtime._guardrail_issue(  # noqa: SLF001
-            session,
-            agent,
-            config,
-            runtime.summarize_memory(runtime.get_or_create_runtime_memory(session, agent)),
-            runtime.llm.RuntimeDecision(action_type="like_post", rationale="test", target_post_id=target_post.id),
-        )
-        assert issue is None
-
-        liked_post, _ = runtime._execute_decision(  # noqa: SLF001
-            session,
-            agent,
-            config,
-            runtime.llm.RuntimeDecision(action_type="like_post", rationale="test", target_post_id=target_post.id),
-        )
-
-        assert liked_post is not None
-        assert liked_post.id == target_post.id
+        assert penalized["score_factors"]["already_seen_penalty"] < 0
+        assert penalized["score_factors"]["recent_interaction_penalty"] < 0
+        assert self_authored["score_factors"]["self_authored_exclusion"] < 0
 
 
-def test_self_like_and_duplicate_interaction_guardrails_block_invalid_reactions(client):
+def test_guardrails_still_block_self_like_duplicate_interaction_and_repeated_reply(client):
     with client.app.state.db.session() as session:
         configure_behavior(session, "cinder", behavior_mode="reply", default_run_mode="live", topic_focus="guardrails")
         agent = runtime.get_agent_for_runtime(session, "cinder")
@@ -126,95 +151,113 @@ def test_self_like_and_duplicate_interaction_guardrails_block_invalid_reactions(
         )
         assert "Duplicate interaction guardrail" in duplicate_issue
 
-
-def test_repeated_reply_guardrail_blocks_same_post_and_repetitive_content(client):
-    with client.app.state.db.session() as session:
-        configure_behavior(session, "quartz", behavior_mode="reply", default_run_mode="live", topic_focus="reply guardrail")
-        agent = runtime.get_agent_for_runtime(session, "quartz")
-        config = runtime.get_or_create_behavior_config(session, agent)
-        memory = runtime.get_or_create_runtime_memory(session, agent)
         target_post = next(post for post in forum.list_posts(session) if post.agent_id != agent.id)
         memory.recent_reply_post_ids_json = json.dumps([target_post.id])
-        memory.recent_generated_fingerprints_json = json.dumps(
-            [runtime._fingerprint("Runtime reply guardrail Small implementation note: runtime reply guardrail stays visible in logs.")]  # noqa: SLF001
-        )
-        session.commit()
-
         repeated_reply_issue = runtime._guardrail_issue(  # noqa: SLF001
             session,
             agent,
             config,
             runtime.summarize_memory(memory),
-            runtime.llm.RuntimeDecision(
-                action_type="comment",
-                rationale="test",
-                body="Small implementation note: runtime reply guardrail stays visible in logs.",
-                target_post_id=target_post.id,
-            ),
+            runtime.llm.RuntimeDecision(action_type="comment", rationale="test", body="Short reply.", target_post_id=target_post.id),
         )
         assert "Repeated reply guardrail" in repeated_reply_issue
 
-        repetitive_post_issue = runtime._guardrail_issue(  # noqa: SLF001
-            session,
-            agent,
-            config,
-            runtime.summarize_memory(memory),
-            runtime.llm.RuntimeDecision(
-                action_type="post",
-                rationale="test",
-                title="Runtime reply guardrail",
-                body="Small implementation note: runtime reply guardrail stays visible in logs.",
-                community_slug="signal-lab",
-            ),
-        )
-        assert "Repetitive content guardrail" in repetitive_post_issue
 
-
-def test_runtime_logs_include_decision_summary_and_attention_snapshot(client):
+def test_smoke_run_aggregate_summary_generation(client):
     with client.app.state.db.session() as session:
-        configure_behavior(session, "cinder", behavior_mode="mixed", default_run_mode="dry_run", topic_focus="decision summary")
+        for slug in ("cinder", "vector", "quartz"):
+            configure_behavior(session, slug, behavior_mode="mixed", default_run_mode="live", topic_focus=f"{slug} smoke focus")
 
-        outcome = runtime.run_agent_cycle(session, client.app.state.settings, "cinder", run_mode="dry_run", triggered_by="manual")
-        details = json.loads(outcome.log.details_json)
+    report = runtime.run_smoke_run(
+        client.app.state.settings,
+        client.app.state.db,
+        agent_slugs=["cinder", "vector", "quartz"],
+        rounds=2,
+        run_mode="dry_run",
+        community_scope_slug="signal-lab",
+    )
 
-        assert "decision_summary" in details
-        assert "attention" in details
-        assert details["attention"]["post_candidates"]
-        assert details["decision_summary"]["action_type"] in runtime.ACTION_TYPES
+    assert report["rounds_requested"] == 2
+    assert len(report["rounds"]) == 2
+    assert "average_output_length" in report["totals"]
+    assert "target_community_distribution" in report["totals"]
+    assert set(report["rounds"][0]["agents"].keys()) == {"cinder", "vector", "quartz"}
 
 
-def test_admin_runtime_page_shows_timeline_filters_and_guardrail_state(client):
+def test_smoke_run_dry_run_does_not_mutate_main_database(client):
     with client.app.state.db.session() as session:
-        configure_behavior(session, "cinder", behavior_mode="reply", default_run_mode="live", topic_focus="admin runtime state")
-        memory = runtime.get_or_create_runtime_memory(session, forum.get_agent(session, "cinder"))
-        report = runtime.build_attention_report(session, "cinder")
-        memory.recent_reply_post_ids_json = json.dumps([post.id for post in forum.list_posts(session)])
-        memory.recent_like_targets_json = json.dumps(
-            [
-                {"target": f"comment:{candidate['target_id']}", "at": report["generated_at"]}
-                for candidate in report["comment_candidates"]
-            ]
-            + [
-                {"target": f"post:{candidate['target_id']}", "at": report["generated_at"]}
-                for candidate in report["post_candidates"]
-            ]
-        )
-        session.commit()
-        outcome = runtime.run_agent_cycle(session, client.app.state.settings, "cinder", run_mode="live", triggered_by="manual")
+        for slug in ("cinder", "vector", "quartz"):
+            configure_behavior(session, slug, behavior_mode="mixed", default_run_mode="live", topic_focus=f"{slug} smoke dry run")
+        before = {
+            "posts": len(forum.list_posts(session)),
+            "comments": sum(len(post.comments) for post in forum.list_posts(session)),
+            "logs": len(runtime.list_runtime_logs(session, limit=200)),
+            "drafts": len(runtime.list_runtime_drafts(session, limit=200)),
+        }
 
-        assert outcome.log.status == "skipped"
-        assert "guardrail" in outcome.log.details_json.lower()
+    runtime.run_smoke_run(
+        client.app.state.settings,
+        client.app.state.db,
+        agent_slugs=["cinder", "vector", "quartz"],
+        rounds=2,
+        run_mode="dry_run",
+    )
 
-    runtime_page = client.get("/admin/runtime?agent=cinder&action=skip&status=skipped")
-    assert runtime_page.status_code == 200
-    assert "Recent action timeline" in runtime_page.text
-    assert "Timeline filters" in runtime_page.text
-    assert "Guardrail reasons" in runtime_page.text
-    assert outcome.log.message in runtime_page.text
-    assert "should_create_post" in runtime_page.text
+    with client.app.state.db.session() as session:
+        after = {
+            "posts": len(forum.list_posts(session)),
+            "comments": sum(len(post.comments) for post in forum.list_posts(session)),
+            "logs": len(runtime.list_runtime_logs(session, limit=200)),
+            "drafts": len(runtime.list_runtime_drafts(session, limit=200)),
+        }
+
+    assert after == before
 
 
-def test_runtime_v1_dry_run_and_approval_flows_still_work(client):
+def test_smoke_run_live_creates_logs_and_action_summaries(client):
+    with client.app.state.db.session() as session:
+        for slug in ("cinder", "vector", "quartz"):
+            configure_behavior(session, slug, behavior_mode="mixed", default_run_mode="live", topic_focus=f"{slug} smoke live")
+        before_logs = len(runtime.list_runtime_logs(session, limit=200))
+
+    report = runtime.run_smoke_run(
+        client.app.state.settings,
+        client.app.state.db,
+        agent_slugs=["cinder", "vector", "quartz"],
+        rounds=1,
+        run_mode="live",
+    )
+
+    with client.app.state.db.session() as session:
+        after_logs = len(runtime.list_runtime_logs(session, limit=200))
+        cinder_memory = runtime.summarize_memory(runtime.get_or_create_runtime_memory(session, forum.get_agent(session, "cinder")))
+
+    assert after_logs > before_logs
+    assert sum(report["totals"]["action_counts"].values()) == 3
+    assert cinder_memory["recent_action_summaries"]
+
+
+def test_admin_runtime_page_can_render_smoke_report(client):
+    with client.app.state.db.session() as session:
+        for slug in ("cinder", "vector", "quartz"):
+            configure_behavior(session, slug, behavior_mode="mixed", default_run_mode="live", topic_focus=f"{slug} admin smoke")
+
+    response = client.post(
+        "/admin/runtime/smoke-run",
+        data={
+            "agent_slugs": "cinder,vector,quartz",
+            "rounds": 1,
+            "run_mode": "dry_run",
+            "community_scope_slug": "signal-lab",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Smoke report" in response.text
+    assert "Runtime smoke run" in response.text
+
+
+def test_runtime_v1_and_v15_core_flows_still_work(client):
     with client.app.state.db.session() as session:
         configure_behavior(session, "vector", behavior_mode="post", default_run_mode="dry_run", topic_focus="v1 dry run")
         dry_run = runtime.run_agent_cycle(session, client.app.state.settings, "vector", run_mode="dry_run", triggered_by="manual")

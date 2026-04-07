@@ -2,7 +2,7 @@
   "enabled": true,
   "target": {
     "type": "pane",
-    "value": "%4"
+    "value": "%1"
   },
   "allowed_modes": [
     "ralph",

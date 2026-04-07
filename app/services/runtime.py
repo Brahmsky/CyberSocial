@@ -3,14 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import json
+from pathlib import Path
+import shutil
+import tempfile
 from threading import Event, Lock, Thread
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.config import Settings
-from app.db import Database
+from app.config import Settings, build_settings
+from app.db import Database, build_database
 from app.models import (
     Agent,
     AgentBehaviorConfig,
@@ -326,13 +329,13 @@ def update_behavior_config(
     return config
 
 
-def build_attention_report(session: Session, agent_slug: str) -> dict[str, Any]:
+def build_attention_report(session: Session, agent_slug: str, community_scope_slug: str | None = None) -> dict[str, Any]:
     agent = get_agent_for_runtime(session, agent_slug)
     if agent is None:
         raise ValueError("Agent not found.")
     config = get_or_create_behavior_config(session, agent)
     memory = get_or_create_runtime_memory(session, agent)
-    return _build_attention_report(session, agent, config, summarize_memory(memory))
+    return _build_attention_report(session, agent, config, summarize_memory(memory), community_scope_slug=community_scope_slug)
 
 
 def build_runtime_timeline(logs: list[RuntimeLog]) -> list[dict[str, Any]]:
@@ -352,6 +355,9 @@ def build_runtime_timeline(logs: list[RuntimeLog]) -> list[dict[str, Any]]:
                 "best_like_comment": attention.get("best_like_comment"),
                 "should_create_post": attention.get("should_create_post"),
                 "guardrail_reason": details.get("guardrail_reason"),
+                "output_length": len((details.get("decision", {}).get("title") or "").strip()) + len((details.get("decision", {}).get("body") or "").strip()),
+                "voice": details.get("decision", {}).get("raw", {}).get("voice"),
+                "style": details.get("decision", {}).get("raw", {}).get("style"),
             }
         )
     return entries
@@ -381,6 +387,142 @@ def build_draft_entries(session: Session, drafts: list[RuntimeDraft]) -> list[di
     return entries
 
 
+def run_smoke_run(
+    settings: Settings,
+    database: Database,
+    *,
+    agent_slugs: list[str],
+    rounds: int,
+    run_mode: str,
+    community_scope_slug: str | None = None,
+) -> dict[str, Any]:
+    unique_agents = [slug for slug in dict.fromkeys(agent_slugs) if slug]
+    if not unique_agents:
+        raise ValueError("Smoke run requires at least one agent.")
+    if run_mode not in RUN_MODES:
+        raise ValueError("Smoke run mode must be dry_run or live.")
+    if rounds < 1:
+        raise ValueError("Smoke run rounds must be at least 1.")
+    if community_scope_slug:
+        with database.session() as session:
+            if forum.get_community(session, community_scope_slug) is None:
+                raise ValueError("Smoke run community scope was not found.")
+    if run_mode == "dry_run":
+        return _run_smoke_run_on_cloned_database(
+            settings,
+            database,
+            agent_slugs=unique_agents,
+            rounds=rounds,
+            run_mode=run_mode,
+            community_scope_slug=community_scope_slug,
+        )
+    return _run_smoke_run_on_database(
+        settings,
+        database,
+        agent_slugs=unique_agents,
+        rounds=rounds,
+        run_mode=run_mode,
+        community_scope_slug=community_scope_slug,
+    )
+
+
+def _run_smoke_run_on_database(
+    settings: Settings,
+    database: Database,
+    *,
+    agent_slugs: list[str],
+    rounds: int,
+    run_mode: str,
+    community_scope_slug: str | None,
+) -> dict[str, Any]:
+    report = {
+        "agent_slugs": agent_slugs,
+        "rounds_requested": rounds,
+        "run_mode": run_mode,
+        "community_scope_slug": community_scope_slug,
+        "rounds": [],
+        "totals": {
+            "action_counts": {action: 0 for action in ACTION_TYPES},
+            "guardrail_counts": {},
+            "average_output_length": 0.0,
+            "repetitive_content_hits": 0,
+            "target_community_distribution": {},
+        },
+    }
+    all_output_lengths: list[int] = []
+
+    for round_index in range(1, rounds + 1):
+        round_summary = {
+            "round": round_index,
+            "agents": {},
+            "guardrail_counts": {},
+            "average_output_length": 0.0,
+            "repetitive_content_hits": 0,
+            "target_community_distribution": {},
+        }
+        round_lengths: list[int] = []
+        with database.session() as session:
+            ensure_runtime_bootstrap(session, settings)
+            for slug in agent_slugs:
+                outcome = run_agent_cycle(
+                    session,
+                    settings,
+                    slug,
+                    run_mode=run_mode,
+                    triggered_by="smoke_run",
+                    community_scope_slug=community_scope_slug,
+                )
+                agent_summary = _build_smoke_agent_summary(session, outcome)
+                round_summary["agents"][slug] = agent_summary
+                report["totals"]["action_counts"][agent_summary["action_type"]] += 1
+                round_lengths.append(agent_summary["output_length"])
+                all_output_lengths.append(agent_summary["output_length"])
+                if agent_summary["guardrail_reason"]:
+                    _increment_counter(round_summary["guardrail_counts"], agent_summary["guardrail_reason"])
+                    _increment_counter(report["totals"]["guardrail_counts"], agent_summary["guardrail_reason"])
+                if agent_summary["repetitive_content_hit"]:
+                    round_summary["repetitive_content_hits"] += 1
+                    report["totals"]["repetitive_content_hits"] += 1
+                if agent_summary["community_slug"]:
+                    _increment_counter(round_summary["target_community_distribution"], agent_summary["community_slug"])
+                    _increment_counter(report["totals"]["target_community_distribution"], agent_summary["community_slug"])
+        round_summary["average_output_length"] = round(sum(round_lengths) / len(round_lengths), 2) if round_lengths else 0.0
+        report["rounds"].append(round_summary)
+
+    report["totals"]["average_output_length"] = round(sum(all_output_lengths) / len(all_output_lengths), 2) if all_output_lengths else 0.0
+    return report
+
+
+def _run_smoke_run_on_cloned_database(
+    settings: Settings,
+    database: Database,
+    *,
+    agent_slugs: list[str],
+    rounds: int,
+    run_mode: str,
+    community_scope_slug: str | None,
+) -> dict[str, Any]:
+    if not settings.database_url.startswith("sqlite:///"):
+        raise ValueError("Smoke run dry_run isolation currently requires sqlite.")
+    source_path = Path(settings.database_url.removeprefix("sqlite:///"))
+    with tempfile.TemporaryDirectory(prefix="cyber-social-smoke-") as temp_dir:
+        temp_path = Path(temp_dir) / source_path.name
+        shutil.copy2(source_path, temp_path)
+        cloned_settings = build_settings(root_dir=settings.root_dir, database_url=f"sqlite:///{temp_path.as_posix()}")
+        cloned_db = build_database(cloned_settings)
+        try:
+            return _run_smoke_run_on_database(
+                cloned_settings,
+                cloned_db,
+                agent_slugs=agent_slugs,
+                rounds=rounds,
+                run_mode=run_mode,
+                community_scope_slug=community_scope_slug,
+            )
+        finally:
+            cloned_db.dispose()
+
+
 def run_enabled_agents_once(session: Session, settings: Settings, *, triggered_by: str) -> list[RuntimeOutcome]:
     outcomes: list[RuntimeOutcome] = []
     for agent in list_agents_for_runtime(session):
@@ -401,6 +543,7 @@ def run_agent_cycle(
     *,
     run_mode: str = "default",
     triggered_by: str = "manual",
+    community_scope_slug: str | None = None,
 ) -> RuntimeOutcome:
     state = get_runtime_state(session, settings)
     agent = get_agent_for_runtime(session, agent_slug)
@@ -432,7 +575,7 @@ def run_agent_cycle(
             details={"triggered_by": triggered_by, "guardrail_reason": skip_reason, "memory_summary": summarize_memory(memory)},
         )
 
-    attention_report = _build_attention_report(session, agent, config, memory_state)
+    attention_report = _build_attention_report(session, agent, config, memory_state, community_scope_slug=community_scope_slug)
     context = llm.RuntimeContext(
         agent_slug=agent.slug,
         display_name=agent.display_name,
@@ -445,6 +588,7 @@ def run_agent_cycle(
         preferred_community_name=config.preferred_community.name if config.preferred_community else None,
         attention_report=attention_report,
         memory_summary=_memory_prompt_summary(memory_state),
+        community_scope_slug=community_scope_slug,
     )
 
     backend_used = state.llm_backend
@@ -474,6 +618,7 @@ def run_agent_cycle(
         "decision": decision.as_payload(),
         "decision_summary": _build_decision_summary(session, decision),
         "memory_summary": summarize_memory(memory),
+        "community_scope_slug": community_scope_slug,
     }
     if adapter_warning:
         details["adapter_warning"] = adapter_warning
@@ -679,9 +824,11 @@ def _build_attention_report(
     agent: Agent,
     config: AgentBehaviorConfig,
     memory_state: dict[str, Any],
+    community_scope_slug: str | None = None,
 ) -> dict[str, Any]:
-    preferred_community = config.preferred_community
-    all_posts = forum.list_posts(session)
+    scoped_community = forum.get_community(session, community_scope_slug) if community_scope_slug else None
+    preferred_community = scoped_community or config.preferred_community
+    all_posts = forum.list_posts(session, community_slug=scoped_community.slug) if scoped_community else forum.list_posts(session)
     recent_posts = forum.sort_posts(list(all_posts), sort="new")[:8]
     hot_posts = forum.sort_posts(list(all_posts), sort="hot")[:8]
     preferred_posts = (
@@ -707,7 +854,7 @@ def _build_attention_report(
 
     post_lookup = {post.id: post for post in all_posts}
     post_candidates = [
-        _score_post_candidate(post_lookup[post_id], source_tags, agent, memory_state, preferred_community)
+        _score_post_candidate(post_lookup[post_id], source_tags, agent, config, memory_state, preferred_community)
         for post_id, source_tags in source_map.items()
         if post_id in post_lookup
     ]
@@ -730,6 +877,7 @@ def _build_attention_report(
         "best_like_comment": best_like_comment,
         "should_create_post": should_create_post,
         "preferred_community_slug": preferred_community.slug if preferred_community else None,
+        "community_scope_slug": scoped_community.slug if scoped_community else None,
         "memory_summary": _memory_prompt_summary(memory_state),
     }
 
@@ -738,50 +886,52 @@ def _score_post_candidate(
     post: Post,
     source_tags: set[str],
     agent: Agent,
+    config: AgentBehaviorConfig,
     memory_state: dict[str, Any],
     preferred_community: Community | None,
 ) -> dict[str, Any]:
-    score = 0
-    reasons: list[str] = []
+    score_factors: dict[str, int] = {}
     source_weights = {"recent": 4, "hot": 3, "engaged": 4, "preferred": 2}
-    for label in sorted(source_tags):
-        score += source_weights[label]
-        reasons.append(label)
-
-    if post.agent_id != agent.id:
-        score += 2
-        reasons.append("external_author")
-    else:
-        score -= 8
-        reasons.append("self_authored")
-
-    score += min(post.comment_count, 6)
-    score += min(max(post.score, 0), 20) // 4
+    score_factors["source_signal"] = sum(source_weights[label] for label in sorted(source_tags))
+    score_factors["external_author"] = 2 if post.agent_id != agent.id else 0
+    score_factors["self_authored_exclusion"] = -100 if post.agent_id == agent.id else 0
+    score_factors["engagement_score"] = min(post.comment_count, 6) + (min(max(post.score, 0), 20) // 4)
 
     age_hours = max((datetime.utcnow() - post.created_at).total_seconds() / 3600.0, 1.0)
     if age_hours <= 6:
-        score += 3
-        reasons.append("very_recent")
+        score_factors["recency"] = 3
     elif age_hours <= 24:
-        score += 2
-        reasons.append("recent_enough")
+        score_factors["recency"] = 2
     elif age_hours <= 72:
-        score += 1
-        reasons.append("still_active")
+        score_factors["recency"] = 1
+    else:
+        score_factors["recency"] = 0
 
     if preferred_community and post.community_id == preferred_community.id:
-        score += 1
-        reasons.append("preferred_match")
+        score_factors["preferred_community_match"] = 2
+    else:
+        score_factors["preferred_community_match"] = 0
+
+    score_factors["topic_affinity"] = _topic_affinity_score(post, config, preferred_community)
 
     if post.id in memory_state["recent_reply_post_ids"]:
-        score -= 6
-        reasons.append("recently_replied")
-    if _was_recently_liked(memory_state, f"post:{post.id}"):
-        score -= 5
-        reasons.append("recently_liked")
+        score_factors["recent_interaction_penalty"] = -6
+    elif _was_recently_liked(memory_state, f"post:{post.id}"):
+        score_factors["recent_interaction_penalty"] = -5
+    else:
+        score_factors["recent_interaction_penalty"] = 0
+
     if post.id in memory_state["recent_participated_post_ids"]:
-        score += 1
-        reasons.append("participation_continuity")
+        score_factors["already_seen_penalty"] = -3
+        score_factors["continuity_bonus"] = 1
+        score_factors["novelty_bonus"] = 0
+    else:
+        score_factors["already_seen_penalty"] = 0
+        score_factors["continuity_bonus"] = 0
+        score_factors["novelty_bonus"] = 2
+
+    score = sum(score_factors.values())
+    reasons = [name for name, value in score_factors.items() if value]
 
     return {
         "target_type": "post",
@@ -795,10 +945,12 @@ def _score_post_candidate(
         "author_name": post.agent.display_name,
         "source_tags": sorted(source_tags),
         "reasons": reasons,
+        "score_factors": score_factors,
         "excerpt": _excerpt(post.body),
         "self_authored": post.agent_id == agent.id,
         "recently_replied": post.id in memory_state["recent_reply_post_ids"],
         "recently_liked": _was_recently_liked(memory_state, f"post:{post.id}"),
+        "seen_recently": post.id in memory_state["recent_participated_post_ids"],
     }
 
 
@@ -846,6 +998,24 @@ def _build_comment_candidates(
                 }
             )
     return candidates
+
+
+def _topic_affinity_score(post: Post, config: AgentBehaviorConfig, preferred_community: Community | None) -> int:
+    focus_text = " ".join(
+        fragment
+        for fragment in (
+            config.topic_focus,
+            config.persona_prompt[:120],
+            preferred_community.name if preferred_community else "",
+        )
+        if fragment
+    )
+    focus_tokens = _extract_tokens(focus_text)
+    if not focus_tokens:
+        return 0
+    post_tokens = _extract_tokens(" ".join((post.title, post.body[:180], post.community.name, post.community.description)))
+    overlap = len(focus_tokens & post_tokens)
+    return min(overlap * 2, 6)
 
 
 def _candidate_can_receive_comment(candidate: dict[str, Any]) -> bool:
@@ -1277,6 +1447,46 @@ def _memory_prompt_summary(memory_state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _build_smoke_agent_summary(session: Session, outcome: RuntimeOutcome) -> dict[str, Any]:
+    details = _load_json_object(outcome.log.details_json)
+    decision = details.get("decision", {})
+    output_length = len((decision.get("title") or "").strip()) + len((decision.get("body") or "").strip())
+    guardrail_reason = details.get("guardrail_reason")
+    community_slug = _decision_community_slug(session, decision)
+    return {
+        "agent_slug": outcome.agent.slug,
+        "action_type": outcome.log.action_type,
+        "status": outcome.log.status,
+        "counts": {action: 1 if outcome.log.action_type == action else 0 for action in ACTION_TYPES},
+        "counts_line": ", ".join(f"{action}=1" if outcome.log.action_type == action else f"{action}=0" for action in sorted(ACTION_TYPES)),
+        "guardrail_reason": guardrail_reason,
+        "output_length": output_length,
+        "repetitive_content_hit": isinstance(guardrail_reason, str) and "Repetitive content guardrail" in guardrail_reason,
+        "community_slug": community_slug,
+        "decision_summary": details.get("decision_summary", {}),
+    }
+
+
+def _decision_community_slug(session: Session, decision: dict[str, Any]) -> str | None:
+    if decision.get("community_slug"):
+        return str(decision["community_slug"])
+    target_post_id = decision.get("target_post_id")
+    target_comment_id = decision.get("target_comment_id")
+    if target_post_id:
+        post = forum.get_post(session, int(target_post_id))
+        if post:
+            return post.community.slug
+    if target_comment_id:
+        comment = session.get(Comment, int(target_comment_id))
+        if comment and comment.post and comment.post.community:
+            return comment.post.community.slug
+    return None
+
+
+def _increment_counter(counter: dict[str, int], key: str) -> None:
+    counter[key] = counter.get(key, 0) + 1
+
+
 def _finalize_skipped_outcome(
     session: Session,
     *,
@@ -1334,6 +1544,10 @@ def _prepend_unique(values: list[Any], new_value: Any, *, limit: int) -> list[An
 def _excerpt(value: str, *, limit: int = 110) -> str:
     compact = " ".join(value.split())
     return compact[:limit] + ("..." if len(compact) > limit else "")
+
+
+def _extract_tokens(value: str) -> set[str]:
+    return {token for token in _normalize_text(value).split() if len(token) >= 4}
 
 
 def _normalize_text(value: str) -> str:
