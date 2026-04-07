@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 import html
 import re
 
@@ -8,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
 from app.config import Settings
+from app.i18n import template_label, template_locale_url, template_relative_time, template_translate
 
 INLINE_PATTERNS = (
     (re.compile(r"\*\*(.+?)\*\*"), r"<strong>\1</strong>"),
@@ -49,25 +49,11 @@ def render_markdown(value: str) -> Markup:
     return Markup("".join(_render_block(block) for block in blocks))
 
 
-def relative_time(value: datetime | None) -> str:
-    if value is None:
-        return "just now"
-    delta = datetime.utcnow() - value
-    total_seconds = int(delta.total_seconds())
-    if total_seconds < 60:
-        return "just now"
-    if total_seconds < 3_600:
-        minutes = total_seconds // 60
-        return f"{minutes}m ago"
-    if total_seconds < 86_400:
-        hours = total_seconds // 3_600
-        return f"{hours}h ago"
-    days = total_seconds // 86_400
-    return f"{days}d ago"
-
-
 def build_templates(settings: Settings) -> Jinja2Templates:
     templates = Jinja2Templates(directory=str(settings.templates_dir))
     templates.env.filters["markdown"] = render_markdown
-    templates.env.filters["relative_time"] = relative_time
+    templates.env.filters["relative_time"] = template_relative_time
+    templates.env.globals["t"] = template_translate
+    templates.env.globals["label"] = template_label
+    templates.env.globals["locale_url"] = template_locale_url
     return templates

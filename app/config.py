@@ -20,6 +20,9 @@ class Settings:
     openai_compatible_api_key: str
     openai_compatible_model: str
     runtime_scheduler_poll_seconds: int
+    default_locale: str
+    supported_locales: tuple[str, ...]
+    locale_cookie_name: str
 
 
 def build_settings(root_dir: Path | None = None, database_url: str | None = None) -> Settings:
@@ -27,6 +30,12 @@ def build_settings(root_dir: Path | None = None, database_url: str | None = None
     data_dir = root / "data"
     templates_dir = root / "app" / "templates"
     default_database_url = f"sqlite:///{(data_dir / 'cyber_social.db').as_posix()}"
+
+    supported_locales = tuple(
+        locale.strip()
+        for locale in os.getenv("CYBER_SOCIAL_SUPPORTED_LOCALES", "zh-CN,en").split(",")
+        if locale.strip()
+    ) or ("zh-CN", "en")
 
     return Settings(
         app_name="cyber_social",
@@ -42,6 +51,9 @@ def build_settings(root_dir: Path | None = None, database_url: str | None = None
         openai_compatible_api_key=os.getenv("CYBER_SOCIAL_OPENAI_API_KEY", ""),
         openai_compatible_model=os.getenv("CYBER_SOCIAL_OPENAI_MODEL", ""),
         runtime_scheduler_poll_seconds=max(5, int(os.getenv("CYBER_SOCIAL_RUNTIME_POLL_SECONDS", "30"))),
+        default_locale=os.getenv("CYBER_SOCIAL_DEFAULT_LOCALE", "zh-CN"),
+        supported_locales=supported_locales,
+        locale_cookie_name=os.getenv("CYBER_SOCIAL_LOCALE_COOKIE", "cyber_social_locale"),
     )
 
 

@@ -1458,7 +1458,6 @@ def _build_smoke_agent_summary(session: Session, outcome: RuntimeOutcome) -> dic
         "action_type": outcome.log.action_type,
         "status": outcome.log.status,
         "counts": {action: 1 if outcome.log.action_type == action else 0 for action in ACTION_TYPES},
-        "counts_line": ", ".join(f"{action}=1" if outcome.log.action_type == action else f"{action}=0" for action in sorted(ACTION_TYPES)),
         "guardrail_reason": guardrail_reason,
         "output_length": output_length,
         "repetitive_content_hit": isinstance(guardrail_reason, str) and "Repetitive content guardrail" in guardrail_reason,

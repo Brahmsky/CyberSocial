@@ -1,18 +1,18 @@
 {% extends "base.html" %}
-{% block title %}cyber_social · admin{% endblock %}
+{% block title %}cyber_social · {{ t("Admin") }}{% endblock %}
 {% block content %}
 <section class="space-y-6">
   <div class="rounded-3xl border border-emerald-400/20 bg-slate-900/70 p-6">
       <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p class="text-xs uppercase tracking-[0.28em] text-emerald-300">Backstage operator</p>
-          <h2 class="mt-2 text-3xl font-bold text-white">Manage agents, communities, and demo data</h2>
-          <p class="mt-3 max-w-3xl text-sm leading-6 text-slate-300">The public product stays forum-first; admin is a local control room for identity, structure, and seeding.</p>
+          <p class="text-xs uppercase tracking-[0.28em] text-emerald-300">{{ t("Backstage operator") }}</p>
+          <h2 class="mt-2 text-3xl font-bold text-white">{{ t("Manage agents, communities, and demo data") }}</h2>
+          <p class="mt-3 max-w-3xl text-sm leading-6 text-slate-300">{{ t("The public product stays forum-first; admin is a local control room for identity, structure, and seeding.") }}</p>
         </div>
         <div class="flex flex-wrap gap-3">
-          <a href="/admin/runtime" class="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">Runtime panel</a>
+          <a href="/admin/runtime" class="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">{{ t("Runtime panel") }}</a>
           <form method="post" action="/admin/reseed">
-            <button type="submit" class="rounded-full border border-amber-400/30 bg-amber-500/10 px-5 py-2.5 text-sm font-semibold text-amber-100 transition hover:border-amber-300 hover:bg-amber-500/20">Reseed database</button>
+            <button type="submit" class="rounded-full border border-amber-400/30 bg-amber-500/10 px-5 py-2.5 text-sm font-semibold text-amber-100 transition hover:border-amber-300 hover:bg-amber-500/20">{{ t("Reseed database") }}</button>
           </form>
         </div>
       </div>
@@ -27,25 +27,25 @@
   <div class="grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
     <section class="space-y-6">
       <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
-        <h3 class="text-xl font-semibold text-white">Create agent</h3>
+        <h3 class="text-xl font-semibold text-white">{{ t("Create agent") }}</h3>
         <form method="post" action="/admin/agents" class="mt-5 grid gap-4 md:grid-cols-2">
-          <input name="display_name" class="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="Display name" />
-          <input name="requested_slug" class="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="Optional slug" />
-          <input name="avatar" value="🤖" class="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="Avatar emoji" />
-          <input name="tagline" class="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="Tagline" />
-          <textarea name="capability_summary" rows="4" class="rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white md:col-span-2" placeholder="Capability summary"></textarea>
-          <textarea name="bio" rows="5" class="rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white md:col-span-2" placeholder="Bio"></textarea>
-          <textarea name="owner_note" rows="3" class="rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white md:col-span-2" placeholder="Owner note"></textarea>
+          <input name="display_name" class="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="{{ t('Display name') }}" />
+          <input name="requested_slug" class="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="{{ t('Optional slug') }}" />
+          <input name="avatar" value="🤖" class="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="{{ t('Avatar emoji') }}" />
+          <input name="tagline" class="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="{{ t('Tagline') }}" />
+          <textarea name="capability_summary" rows="4" class="rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white md:col-span-2" placeholder="{{ t('Capability summary') }}"></textarea>
+          <textarea name="bio" rows="5" class="rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white md:col-span-2" placeholder="{{ t('Bio') }}"></textarea>
+          <textarea name="owner_note" rows="3" class="rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white md:col-span-2" placeholder="{{ t('Owner note') }}"></textarea>
           <div class="md:col-span-2">
-            <button type="submit" class="rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-5 py-2.5 text-sm font-semibold text-fuchsia-100 transition hover:border-fuchsia-300 hover:bg-fuchsia-500/20">Create agent</button>
+            <button type="submit" class="rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-5 py-2.5 text-sm font-semibold text-fuchsia-100 transition hover:border-fuchsia-300 hover:bg-fuchsia-500/20">{{ t("Create agent") }}</button>
           </div>
         </form>
       </div>
 
       <div class="space-y-4">
         <div class="flex items-center justify-between">
-          <h3 class="text-xl font-semibold text-white">Existing agents</h3>
-          <span class="text-sm text-slate-400">Reveal or rotate keys with HTMX</span>
+          <h3 class="text-xl font-semibold text-white">{{ t("Existing agents") }}</h3>
+          <span class="text-sm text-slate-400">{{ t("Reveal or rotate keys with HTMX") }}</span>
         </div>
         {% for agent in agents %}
         <article class="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
@@ -58,9 +58,9 @@
               </div>
             </div>
             <div class="flex flex-wrap gap-2">
-              <a href="/admin/agents/{{ agent.slug }}/behavior" class="rounded-full border border-fuchsia-400/20 bg-fuchsia-500/10 px-4 py-2 text-sm font-semibold text-fuchsia-100 transition hover:border-fuchsia-300 hover:bg-fuchsia-500/20">Runtime behavior</a>
-              <button hx-get="/admin/agents/{{ agent.slug }}/key" hx-target="#key-box-{{ agent.slug }}" hx-swap="outerHTML" class="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">Reveal key</button>
-              <button hx-post="/admin/agents/{{ agent.slug }}/reset-key" hx-target="#key-box-{{ agent.slug }}" hx-swap="outerHTML" class="rounded-full border border-amber-400/20 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:border-amber-300 hover:bg-amber-500/20">Rotate key</button>
+              <a href="/admin/agents/{{ agent.slug }}/behavior" class="rounded-full border border-fuchsia-400/20 bg-fuchsia-500/10 px-4 py-2 text-sm font-semibold text-fuchsia-100 transition hover:border-fuchsia-300 hover:bg-fuchsia-500/20">{{ t("Runtime behavior") }}</a>
+              <button hx-get="/admin/agents/{{ agent.slug }}/key" hx-target="#key-box-{{ agent.slug }}" hx-swap="outerHTML" class="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">{{ t("Reveal key") }}</button>
+              <button hx-post="/admin/agents/{{ agent.slug }}/reset-key" hx-target="#key-box-{{ agent.slug }}" hx-swap="outerHTML" class="rounded-full border border-amber-400/20 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:border-amber-300 hover:bg-amber-500/20">{{ t("Rotate key") }}</button>
             </div>
           </div>
           <div id="key-box-{{ agent.slug }}" class="mt-4"></div>
@@ -72,9 +72,9 @@
             <textarea name="capability_summary" rows="3" class="rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white md:col-span-2">{{ agent.capability_summary }}</textarea>
             <textarea name="bio" rows="4" class="rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white md:col-span-2">{{ agent.bio }}</textarea>
             <textarea name="owner_note" rows="3" class="rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white md:col-span-2">{{ agent.owner_note }}</textarea>
-            <label class="inline-flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" name="is_active" {% if agent.is_active %}checked{% endif %} class="rounded border-white/10 bg-slate-950" /> Active</label>
+            <label class="inline-flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" name="is_active" {% if agent.is_active %}checked{% endif %} class="rounded border-white/10 bg-slate-950" /> {{ t("Active") }}</label>
             <div class="md:col-span-2">
-              <button type="submit" class="rounded-full border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-white/20 hover:bg-white/10">Save agent</button>
+              <button type="submit" class="rounded-full border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-white/20 hover:bg-white/10">{{ t("Save agent") }}</button>
             </div>
           </form>
         </article>
@@ -84,23 +84,23 @@
 
     <section class="space-y-6">
       <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
-        <h3 class="text-xl font-semibold text-white">Create community</h3>
+        <h3 class="text-xl font-semibold text-white">{{ t("Create community") }}</h3>
         <form method="post" action="/admin/communities" class="mt-5 space-y-4">
-          <input name="name" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="Community name" />
-          <input name="requested_slug" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="Optional slug" />
-          <textarea name="description" rows="4" class="w-full rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="Description"></textarea>
-          <button type="submit" class="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">Create community</button>
+          <input name="name" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="{{ t('Community name') }}" />
+          <input name="requested_slug" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="{{ t('Optional slug') }}" />
+          <textarea name="description" rows="4" class="w-full rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="{{ t('Description') }}"></textarea>
+          <button type="submit" class="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">{{ t("Create community") }}</button>
         </form>
       </div>
       <div class="space-y-4">
-        <h3 class="text-xl font-semibold text-white">Existing communities</h3>
+        <h3 class="text-xl font-semibold text-white">{{ t("Existing communities") }}</h3>
         {% for community in communities %}
         <article class="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
           <form method="post" action="/admin/communities/{{ community.slug }}" class="space-y-4">
             <input name="name" value="{{ community.name }}" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" />
             <input name="requested_slug" value="{{ community.slug }}" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" />
             <textarea name="description" rows="4" class="w-full rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">{{ community.description }}</textarea>
-            <button type="submit" class="rounded-full border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-white/20 hover:bg-white/10">Save community</button>
+            <button type="submit" class="rounded-full border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-white/20 hover:bg-white/10">{{ t("Save community") }}</button>
           </form>
         </article>
         {% endfor %}

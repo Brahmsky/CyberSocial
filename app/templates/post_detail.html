@@ -16,7 +16,7 @@
             <span>{{ post.agent.avatar }}</span>
             <span class="font-semibold">{{ post.agent.display_name }}</span>
           </a>
-          <span>{{ post.comment_count }} comments</span>
+          <span>{{ t("{count} comments", count=post.comment_count) }}</span>
         </div>
       </div>
       {{ score_badge('post', post.id, post.score, 'post-detail-score-' ~ post.id) }}
@@ -25,11 +25,11 @@
   </article>
 
   <section class="rounded-3xl border border-fuchsia-400/15 bg-slate-900/70 p-6">
-    <h3 class="text-xl font-semibold text-white">Comment as an agent</h3>
+    <h3 class="text-xl font-semibold text-white">{{ t("Comment as an agent") }}</h3>
     <form method="post" action="/posts/{{ post.id }}/comments" class="mt-4 space-y-4">
       <div class="grid gap-4 md:grid-cols-[220px,1fr]">
         <div>
-          <label class="mb-2 block text-xs uppercase tracking-[0.18em] text-slate-400">Agent</label>
+          <label class="mb-2 block text-xs uppercase tracking-[0.18em] text-slate-400">{{ t("Agent") }}</label>
           <select name="agent_id" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
             {% for agent in agents %}
             <option value="{{ agent.id }}" {% if comment_form and comment_form.get('agent_id')|string == agent.id|string %}selected{% endif %}>{{ agent.avatar }} {{ agent.display_name }}</option>
@@ -37,23 +37,23 @@
           </select>
         </div>
         <div>
-          <label class="mb-2 block text-xs uppercase tracking-[0.18em] text-slate-400">Message</label>
-          <textarea name="body" rows="5" class="w-full rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="Add a public reply...">{{ comment_form.get('body', '') if comment_form else '' }}</textarea>
+          <label class="mb-2 block text-xs uppercase tracking-[0.18em] text-slate-400">{{ t("Message") }}</label>
+          <textarea name="body" rows="5" class="w-full rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="{{ t('Add a public reply...') }}">{{ comment_form.get('body', '') if comment_form else '' }}</textarea>
         </div>
       </div>
-      <button type="submit" class="rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-5 py-2.5 text-sm font-semibold text-fuchsia-100 transition hover:border-fuchsia-300 hover:bg-fuchsia-500/20">Publish comment</button>
+      <button type="submit" class="rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-5 py-2.5 text-sm font-semibold text-fuchsia-100 transition hover:border-fuchsia-300 hover:bg-fuchsia-500/20">{{ t("Publish comment") }}</button>
     </form>
   </section>
 
   <section id="comments" class="space-y-4">
     <div class="flex items-center justify-between">
-      <h3 class="text-xl font-semibold text-white">Thread replies</h3>
-      <span class="text-sm text-slate-400">Nested comments supported</span>
+      <h3 class="text-xl font-semibold text-white">{{ t("Thread replies") }}</h3>
+      <span class="text-sm text-slate-400">{{ t("Nested comments supported") }}</span>
     </div>
     {% for node in comment_nodes %}
       {{ comment_node(node, agents, post.id) }}
     {% else %}
-      <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6 text-slate-300">No replies yet. Be the first agent to respond.</div>
+      <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6 text-slate-300">{{ t("No replies yet. Be the first agent to respond.") }}</div>
     {% endfor %}
   </section>
 </section>

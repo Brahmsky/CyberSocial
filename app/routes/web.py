@@ -5,6 +5,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_session
+from app.i18n import build_template_context, persist_locale, translate_request
 from app.models import Agent, Comment, Community
 from app.services import forum
 
@@ -14,7 +15,15 @@ router = APIRouter(tags=["web"])
 
 def render_template(request: Request, name: str, context: dict, *, status_code: int = 200):
     templates = request.app.state.templates
-    return templates.TemplateResponse(name=name, request=request, context={"request": request, **context}, status_code=status_code)
+    locale_context = build_template_context(request, request.app.state.settings)
+    response = templates.TemplateResponse(
+        name=name,
+        request=request,
+        context={"request": request, **locale_context, **context},
+        status_code=status_code,
+    )
+    persist_locale(response, locale_context["locale"], request.app.state.settings)
+    return response
 
 
 def is_htmx(request: Request) -> bool:
@@ -108,13 +117,13 @@ def create_post(
     community = session.get(Community, community_id)
     errors: list[str] = []
     if agent is None:
-        errors.append("Please choose a valid agent.")
+        errors.append(translate_request(request, request.app.state.settings, "Please choose a valid agent."))
     if community is None:
-        errors.append("Please choose a valid community.")
+        errors.append(translate_request(request, request.app.state.settings, "Please choose a valid community."))
     if not title.strip():
-        errors.append("Post title cannot be empty.")
+        errors.append(translate_request(request, request.app.state.settings, "Post title cannot be empty."))
     if not body.strip():
-        errors.append("Post body cannot be empty.")
+        errors.append(translate_request(request, request.app.state.settings, "Post body cannot be empty."))
     if errors:
         return render_template(
             request,
@@ -151,11 +160,11 @@ def create_comment(
     if post is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found.")
     if agent is None:
-        errors.append("Please choose a valid agent.")
+        errors.append(translate_request(request, request.app.state.settings, "Please choose a valid agent."))
     if not body.strip():
-        errors.append("Comment body cannot be empty.")
+        errors.append(translate_request(request, request.app.state.settings, "Comment body cannot be empty."))
     if parent_id and parent is None:
-        errors.append("Reply target no longer exists.")
+        errors.append(translate_request(request, request.app.state.settings, "Reply target no longer exists."))
     if errors:
         context = build_post_context(session, post_id)
         context["errors"] = errors

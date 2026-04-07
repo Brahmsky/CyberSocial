@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.db import get_session
+from app.i18n import build_template_context, persist_locale, translate_request, translate_runtime_outcome
 from app.seed import reseed_database
 from app.services import forum, runtime
 
@@ -13,7 +14,15 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 def render_template(request: Request, name: str, context: dict, *, status_code: int = 200):
     templates = request.app.state.templates
-    return templates.TemplateResponse(name=name, request=request, context={"request": request, **context}, status_code=status_code)
+    locale_context = build_template_context(request, request.app.state.settings)
+    response = templates.TemplateResponse(
+        name=name,
+        request=request,
+        context={"request": request, **locale_context, **context},
+        status_code=status_code,
+    )
+    persist_locale(response, locale_context["locale"], request.app.state.settings)
+    return response
 
 
 def admin_context(session: Session, *, status_message: str | None = None, error_message: str | None = None) -> dict:
@@ -129,7 +138,15 @@ def admin_create_agent(
     runtime.get_or_create_behavior_config(session, agent)
     runtime.get_or_create_runtime_memory(session, agent)
     session.commit()
-    context = admin_context(session, status_message=f"Created {agent.display_name}. Save the generated key below.")
+    context = admin_context(
+        session,
+        status_message=translate_request(
+            request,
+            request.app.state.settings,
+            "Created {name}. Save the generated key below.",
+            name=agent.display_name,
+        ),
+    )
     context["revealed_secret"] = {"agent": agent, "secret": secret, "mode": "created"}
     return render_template(request, "admin.html", context, status_code=status.HTTP_201_CREATED)
 
@@ -166,7 +183,14 @@ def admin_update_agent(
         )
     except ValueError as exc:
         return render_template(request, "admin.html", admin_context(session, error_message=str(exc)), status_code=status.HTTP_400_BAD_REQUEST)
-    return render_template(request, "admin.html", admin_context(session, status_message=f"Updated {agent.display_name}."))
+    return render_template(
+        request,
+        "admin.html",
+        admin_context(
+            session,
+            status_message=translate_request(request, request.app.state.settings, "Updated {name}.", name=agent.display_name),
+        ),
+    )
 
 
 @router.get("/agents/{slug}/key")
@@ -199,7 +223,15 @@ def admin_create_community(
         community = forum.create_community(session, name=name, description=description, requested_slug=requested_slug or None)
     except ValueError as exc:
         return render_template(request, "admin.html", admin_context(session, error_message=str(exc)), status_code=status.HTTP_400_BAD_REQUEST)
-    return render_template(request, "admin.html", admin_context(session, status_message=f"Created community {community.name}."), status_code=status.HTTP_201_CREATED)
+    return render_template(
+        request,
+        "admin.html",
+        admin_context(
+            session,
+            status_message=translate_request(request, request.app.state.settings, "Created community {name}.", name=community.name),
+        ),
+        status_code=status.HTTP_201_CREATED,
+    )
 
 
 @router.post("/communities/{slug}")
@@ -218,7 +250,14 @@ def admin_update_community(
         forum.update_community(session, community=community, name=name, description=description, requested_slug=requested_slug)
     except ValueError as exc:
         return render_template(request, "admin.html", admin_context(session, error_message=str(exc)), status_code=status.HTTP_400_BAD_REQUEST)
-    return render_template(request, "admin.html", admin_context(session, status_message=f"Updated community {community.name}."))
+    return render_template(
+        request,
+        "admin.html",
+        admin_context(
+            session,
+            status_message=translate_request(request, request.app.state.settings, "Updated {name}.", name=community.name),
+        ),
+    )
 
 
 @router.post("/reseed")
@@ -226,7 +265,10 @@ def admin_reseed(request: Request):
     payload = reseed_database(request.app.state.db, request.app.state.settings)
     with request.app.state.db.session() as session:
         runtime.ensure_runtime_bootstrap(session, request.app.state.settings)
-        context = admin_context(session, status_message="Database reseeded from the built-in MVP dataset.")
+        context = admin_context(
+            session,
+            status_message=translate_request(request, request.app.state.settings, "Database reseeded from the built-in MVP dataset."),
+        )
         demo_agent = forum.get_agent(session, payload["demo_agent_slug"])
         context["revealed_secret"] = {"agent": demo_agent, "secret": payload["demo_agent_key"], "mode": "seeded"}
         return render_template(request, "admin.html", context)
@@ -298,7 +340,13 @@ def admin_runtime_smoke_run(
                 "run_mode": run_mode,
                 "community_scope_slug": community_scope_slug,
             },
-            status_message=f"Smoke run completed for {len(resolved_agent_slugs)} agent(s) across {rounds} round(s).",
+            status_message=translate_request(
+                request,
+                request.app.state.settings,
+                "Smoke run completed for {count} agent(s) across {rounds} round(s).",
+                count=len(resolved_agent_slugs),
+                rounds=rounds,
+            ),
         ),
     )
 
@@ -331,7 +379,11 @@ def admin_update_runtime_settings(
     return render_template(
         request,
         "admin_runtime.html",
-        runtime_context(session, settings=request.app.state.settings, status_message="Updated runtime controls."),
+        runtime_context(
+            session,
+            settings=request.app.state.settings,
+            status_message=translate_request(request, request.app.state.settings, "Updated runtime controls."),
+        ),
     )
 
 
@@ -394,7 +446,17 @@ def admin_update_agent_behavior(
     return render_template(
         request,
         "admin_behavior.html",
-        behavior_context(session, settings=request.app.state.settings, agent=agent, status_message=f"Updated runtime behavior for {agent.display_name}."),
+        behavior_context(
+            session,
+            settings=request.app.state.settings,
+            agent=agent,
+            status_message=translate_request(
+                request,
+                request.app.state.settings,
+                "Updated runtime behavior for {name}.",
+                name=agent.display_name,
+            ),
+        ),
     )
 
 
@@ -423,7 +485,18 @@ def admin_run_agent_runtime_once(
     return render_template(
         request,
         "admin_runtime.html",
-        runtime_context(session, settings=request.app.state.settings, status_message=outcome.status_message),
+        runtime_context(
+            session,
+            settings=request.app.state.settings,
+            status_message=translate_runtime_outcome(
+                request,
+                request.app.state.settings,
+                status=outcome.log.status,
+                action_type=outcome.log.action_type,
+                agent_name=outcome.agent.display_name,
+                fallback=outcome.status_message,
+            ),
+        ),
     )
 
 
@@ -441,7 +514,18 @@ def admin_approve_runtime_draft(request: Request, draft_id: int, session: Sessio
     return render_template(
         request,
         "admin_runtime.html",
-        runtime_context(session, settings=request.app.state.settings, status_message=outcome.status_message),
+        runtime_context(
+            session,
+            settings=request.app.state.settings,
+            status_message=translate_runtime_outcome(
+                request,
+                request.app.state.settings,
+                status=outcome.log.status,
+                action_type=outcome.log.action_type,
+                agent_name=outcome.agent.display_name,
+                fallback=outcome.status_message,
+            ),
+        ),
     )
 
 
@@ -464,5 +548,16 @@ def admin_reject_runtime_draft(
     return render_template(
         request,
         "admin_runtime.html",
-        runtime_context(session, settings=request.app.state.settings, status_message=outcome.status_message),
+        runtime_context(
+            session,
+            settings=request.app.state.settings,
+            status_message=translate_runtime_outcome(
+                request,
+                request.app.state.settings,
+                status=outcome.log.status,
+                action_type=outcome.log.action_type,
+                agent_name=outcome.agent.display_name,
+                fallback=outcome.status_message,
+            ),
+        ),
     )

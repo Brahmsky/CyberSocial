@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
+from app.i18n import relative_time
 from app.services import forum
 
 
@@ -17,7 +20,7 @@ def test_public_pages_render_seeded_content(client):
     home = client.get("/")
     assert home.status_code == 200
     assert "cyber_social" in home.text
-    assert "Signal Lab" in home.text
+    assert "你的机器社会里正在升温的话题" in home.text
 
     communities = client.get("/communities")
     assert communities.status_code == 200
@@ -30,13 +33,37 @@ def test_public_pages_render_seeded_content(client):
 
     agent = client.get("/agents/cinder")
     assert agent.status_code == 200
-    assert "Rep" in agent.text
+    assert "声望" in agent.text
 
     with client.app.state.db.session() as session:
         post = forum.list_posts(session)[0]
     post_detail = client.get(f"/posts/{post.id}")
     assert post_detail.status_code == 200
     assert post.title in post_detail.text
+
+
+def test_default_locale_is_chinese_and_can_switch_to_english_with_persistence(client):
+    default_home = client.get("/")
+    assert default_home.status_code == 200
+    assert "首页" in default_home.text
+    assert "你的机器社会里正在升温的话题" in default_home.text
+
+    english_home = client.get("/?locale=en")
+    assert english_home.status_code == 200
+    assert "Home" in english_home.text
+    assert "Hot discussions from your machine society" in english_home.text
+
+    persisted = client.get("/")
+    assert persisted.status_code == 200
+    assert "Hot discussions from your machine society" in persisted.text
+
+
+def test_relative_time_localizes_between_chinese_and_english():
+    now = datetime.utcnow()
+    assert relative_time(now - timedelta(seconds=30), "zh-CN") == "刚刚"
+    assert relative_time(now - timedelta(minutes=5), "zh-CN") == "5 分钟前"
+    assert relative_time(now - timedelta(hours=2), "en") == "2h ago"
+    assert relative_time(now - timedelta(days=3), "en") == "3d ago"
 
 
 def test_browser_post_creation_flow(client):
@@ -71,7 +98,7 @@ def test_empty_comment_submission_is_rejected(client):
         data={"agent_id": agent.id, "body": "   "},
     )
     assert response.status_code == 400
-    assert "Comment body cannot be empty." in response.text
+    assert "评论内容不能为空。" in response.text
 
 
 def test_api_post_creation_accepts_valid_agent_key(client):
@@ -142,6 +169,15 @@ def test_api_comment_creation_and_like_endpoints(client):
 def test_admin_routes_support_management_flows(client):
     admin_page = client.get("/admin")
     assert admin_page.status_code == 200
+    assert "管理 Agent、社区与演示数据" in admin_page.text
+
+    english_admin = client.get("/admin?locale=en")
+    assert english_admin.status_code == 200
+    assert "Manage agents, communities, and demo data" in english_admin.text
+
+    chinese_admin = client.get("/admin?locale=zh-CN")
+    assert chinese_admin.status_code == 200
+    assert "管理 Agent、社区与演示数据" in chinese_admin.text
 
     create_agent = client.post(
         "/admin/agents",
@@ -160,15 +196,15 @@ def test_admin_routes_support_management_flows(client):
 
     reveal_key = client.get("/admin/agents/signal-finch/key")
     assert reveal_key.status_code == 200
-    assert "Save now" in reveal_key.text
+    assert "请立即保存" in reveal_key.text
 
     rotate_key = client.post("/admin/agents/signal-finch/reset-key")
     assert rotate_key.status_code == 200
-    assert "Save now" in rotate_key.text
+    assert "请立即保存" in rotate_key.text
 
     reseed = client.post("/admin/reseed")
     assert reseed.status_code == 200
-    assert "Database reseeded" in reseed.text
+    assert "重新播种数据库" in reseed.text or "已使用内置 MVP 数据重新播种数据库。" in reseed.text
 
 
 def test_json_envelope_routes_return_expected_shape(client):

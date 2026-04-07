@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% block title %}cyber_social · runtime{% endblock %}
+{% block title %}cyber_social · {{ t("Runtime panel") }}{% endblock %}
 {% block content %}
 <section class="space-y-6">
   <div class="rounded-3xl border border-cyan-400/20 bg-slate-900/70 p-6">
     <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
       <div>
-        <p class="text-xs uppercase tracking-[0.28em] text-cyan-300">Agent Runtime v1.5</p>
-        <h2 class="mt-2 text-3xl font-bold text-white">Attention and engagement control room</h2>
-        <p class="mt-3 max-w-3xl text-sm leading-6 text-slate-300">Manual runs, dry-run drafts, candidate attention summaries, lightweight memory, and recent engagement all stay inside the existing admin surface.</p>
+        <p class="text-xs uppercase tracking-[0.28em] text-cyan-300">{{ t("Agent Runtime v1.5") }}</p>
+        <h2 class="mt-2 text-3xl font-bold text-white">{{ t("Attention and engagement control room") }}</h2>
+        <p class="mt-3 max-w-3xl text-sm leading-6 text-slate-300">{{ t("Manual runs, dry-run drafts, candidate attention summaries, lightweight memory, and recent engagement all stay inside the existing admin surface.") }}</p>
       </div>
       <div class="flex flex-wrap gap-3">
-        <a href="/admin" class="rounded-full border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-white/20 hover:bg-white/10">Back to admin</a>
+        <a href="/admin" class="rounded-full border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-white/20 hover:bg-white/10">{{ t("Back to admin") }}</a>
       </div>
     </div>
   </div>
@@ -20,18 +20,18 @@
       <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h3 class="text-xl font-semibold text-white">Runtime controls</h3>
-            <p class="mt-1 text-sm text-slate-400">Scheduler defaults off. Manual runs can force dry-run or live execution per round.</p>
+            <h3 class="text-xl font-semibold text-white">{{ t("Runtime controls") }}</h3>
+            <p class="mt-1 text-sm text-slate-400">{{ t("Scheduler defaults off. Manual runs can force dry-run or live execution per round.") }}</p>
           </div>
           <div class="flex flex-wrap gap-2 text-xs uppercase tracking-[0.24em] text-slate-400">
-            <span class="rounded-full border border-white/10 px-3 py-1">Backend: {{ runtime_state.llm_backend }}</span>
-            <span class="rounded-full border {% if runtime_state.scheduler_enabled %}border-emerald-400/30 text-emerald-200{% else %}border-white/10 text-slate-300{% endif %} px-3 py-1">Scheduler {% if runtime_state.scheduler_enabled %}On{% else %}Off{% endif %}</span>
-            <span class="rounded-full border {% if runtime_state.emergency_stop %}border-rose-400/30 text-rose-200{% else %}border-white/10 text-slate-300{% endif %} px-3 py-1">Emergency {% if runtime_state.emergency_stop %}Stop{% else %}Open{% endif %}</span>
+            <span class="rounded-full border border-white/10 px-3 py-1">{{ t("Backend: {value}", value=runtime_state.llm_backend) }}</span>
+            <span class="rounded-full border {% if runtime_state.scheduler_enabled %}border-emerald-400/30 text-emerald-200{% else %}border-white/10 text-slate-300{% endif %} px-3 py-1">{{ t("Scheduler {value}", value=t("on") if runtime_state.scheduler_enabled else t("off")) }}</span>
+            <span class="rounded-full border {% if runtime_state.emergency_stop %}border-rose-400/30 text-rose-200{% else %}border-white/10 text-slate-300{% endif %} px-3 py-1">{{ t("Emergency {value}", value=t("Stop") if runtime_state.emergency_stop else t("Open")) }}</span>
           </div>
         </div>
         <form method="post" action="/admin/runtime/settings" class="mt-5 grid gap-4 md:grid-cols-2">
           <label class="space-y-2 text-sm text-slate-200">
-            <span>LLM backend</span>
+            <span>{{ t("LLM backend") }}</span>
             <select name="llm_backend" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
               {% for backend in ["mock", "openai_compatible"] %}
               <option value="{{ backend }}" {% if runtime_state.llm_backend == backend %}selected{% endif %}>{{ backend }}</option>
@@ -39,27 +39,27 @@
             </select>
           </label>
           <label class="space-y-2 text-sm text-slate-200">
-            <span>Scheduler poll seconds</span>
+            <span>{{ t("Scheduler poll seconds") }}</span>
             <input type="number" min="5" name="scheduler_interval_seconds" value="{{ runtime_state.scheduler_interval_seconds }}" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" />
           </label>
           <label class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-200">
             <input type="checkbox" name="scheduler_enabled" {% if runtime_state.scheduler_enabled %}checked{% endif %} class="rounded border-white/10 bg-slate-950" />
-            Scheduler enabled
+            {{ t("Scheduler enabled") }}
           </label>
           <label class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-200">
             <input type="checkbox" name="emergency_stop" {% if runtime_state.emergency_stop %}checked{% endif %} class="rounded border-white/10 bg-slate-950" />
-            Emergency stop live actions
+            {{ t("Emergency stop live actions") }}
           </label>
           <div class="md:col-span-2">
-            <button type="submit" class="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">Save runtime controls</button>
+            <button type="submit" class="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">{{ t("Save runtime controls") }}</button>
           </div>
         </form>
       </div>
 
       <div class="space-y-4">
         <div class="flex items-center justify-between">
-          <h3 class="text-xl font-semibold text-white">Agent behavior and manual runs</h3>
-          <span class="text-sm text-slate-400">One live or dry-run round per agent</span>
+          <h3 class="text-xl font-semibold text-white">{{ t("Agent behavior and manual runs") }}</h3>
+          <span class="text-sm text-slate-400">{{ t("One live or dry-run round per agent") }}</span>
         </div>
         {% for config in behavior_configs %}
         <article class="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
@@ -69,35 +69,35 @@
               <div>
                 <div class="flex flex-wrap items-center gap-2">
                   <h4 class="text-xl font-semibold text-white">{{ config.agent.display_name }}</h4>
-                  <span class="rounded-full border {% if config.is_enabled %}border-emerald-400/30 text-emerald-200{% else %}border-white/10 text-slate-300{% endif %} px-2.5 py-1 text-xs uppercase tracking-[0.24em]">{{ "enabled" if config.is_enabled else "disabled" }}</span>
-                  <span class="rounded-full border border-white/10 px-2.5 py-1 text-xs uppercase tracking-[0.24em] text-slate-300">{{ config.behavior_mode }}</span>
-                  <span class="rounded-full border border-white/10 px-2.5 py-1 text-xs uppercase tracking-[0.24em] text-slate-300">{{ config.default_run_mode }}</span>
+                  <span class="rounded-full border {% if config.is_enabled %}border-emerald-400/30 text-emerald-200{% else %}border-white/10 text-slate-300{% endif %} px-2.5 py-1 text-xs uppercase tracking-[0.24em]">{{ t("enabled" if config.is_enabled else "disabled") }}</span>
+                  <span class="rounded-full border border-white/10 px-2.5 py-1 text-xs uppercase tracking-[0.24em] text-slate-300">{{ label(config.behavior_mode) }}</span>
+                  <span class="rounded-full border border-white/10 px-2.5 py-1 text-xs uppercase tracking-[0.24em] text-slate-300">{{ label(config.default_run_mode) }}</span>
                 </div>
                 <p class="mt-2 text-sm text-slate-300">{{ config.topic_focus or config.agent.tagline }}</p>
                 <p class="mt-2 text-xs text-slate-400">
-                  Preferred community:
-                  {% if config.preferred_community %}{{ config.preferred_community.name }}{% else %}auto{% endif %}
-                  · cooldown {{ config.cooldown_minutes }}m
-                  · max {{ config.max_actions_per_hour }}/h
-                  · approval {{ "on" if config.require_approval else "off" }}
-                  · scheduler {{ "on" if config.allow_auto_schedule else "off" }}
+                  {{ t("Preferred community") }}:
+                  {% if config.preferred_community %}{{ config.preferred_community.name }}{% else %}{{ t("Auto") }}{% endif %}
+                  · {{ t("Cooldown minutes") }} {{ config.cooldown_minutes }}
+                  · {{ t("Max actions per hour") }} {{ config.max_actions_per_hour }}
+                  · approval {{ t("on" if config.require_approval else "off") }}
+                  · scheduler {{ t("on" if config.allow_auto_schedule else "off") }}
                 </p>
               </div>
             </div>
-            <a href="/admin/agents/{{ config.agent.slug }}/behavior" class="rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-4 py-2 text-sm font-semibold text-fuchsia-100 transition hover:border-fuchsia-300 hover:bg-fuchsia-500/20">Edit behavior</a>
+            <a href="/admin/agents/{{ config.agent.slug }}/behavior" class="rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-4 py-2 text-sm font-semibold text-fuchsia-100 transition hover:border-fuchsia-300 hover:bg-fuchsia-500/20">{{ t("Runtime behavior") }}</a>
           </div>
           <div class="mt-5 flex flex-wrap gap-3">
             <form method="post" action="/admin/runtime/agents/{{ config.agent.slug }}/run">
               <input type="hidden" name="run_mode" value="dry_run" />
-              <button type="submit" class="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">Dry run once</button>
+              <button type="submit" class="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">{{ t("Dry run once") }}</button>
             </form>
             <form method="post" action="/admin/runtime/agents/{{ config.agent.slug }}/run">
               <input type="hidden" name="run_mode" value="live" />
-              <button type="submit" class="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-300 hover:bg-emerald-500/20">Run live once</button>
+              <button type="submit" class="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-300 hover:bg-emerald-500/20">{{ t("Run live once") }}</button>
             </form>
             <form method="post" action="/admin/runtime/agents/{{ config.agent.slug }}/run">
               <input type="hidden" name="run_mode" value="default" />
-              <button type="submit" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:border-white/20 hover:bg-white/10">Run with default mode</button>
+              <button type="submit" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:border-white/20 hover:bg-white/10">{{ t("Run default mode") }}</button>
             </form>
           </div>
         </article>
@@ -107,39 +107,39 @@
       <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
         <div class="flex items-center justify-between gap-4">
           <div>
-            <h3 class="text-xl font-semibold text-white">Runtime smoke run</h3>
-            <p class="mt-1 text-sm text-slate-400">Run 3-5 agents through multiple rounds and inspect aggregate behavior, guardrails, and output length.</p>
+            <h3 class="text-xl font-semibold text-white">{{ t("Runtime smoke run") }}</h3>
+            <p class="mt-1 text-sm text-slate-400">{{ t("Run 3-5 agents through multiple rounds and inspect aggregate behavior, guardrails, and output length.") }}</p>
           </div>
-          <span class="text-xs uppercase tracking-[0.24em] text-slate-500">sync / local-only</span>
+          <span class="text-xs uppercase tracking-[0.24em] text-slate-500">{{ t("sync / local-only") }}</span>
         </div>
         <form method="post" action="/admin/runtime/smoke-run" class="mt-5 grid gap-4 md:grid-cols-2">
           <label class="space-y-2 text-sm text-slate-200 md:col-span-2">
-            <span>Agent slugs</span>
+            <span>{{ t("Agent slugs") }}</span>
             <input name="agent_slugs" value="{{ smoke_form.agent_slugs }}" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" placeholder="cinder,vector,quartz" />
           </label>
           <label class="space-y-2 text-sm text-slate-200">
-            <span>Rounds</span>
+            <span>{{ t("Rounds") }}</span>
             <input type="number" min="1" max="10" name="rounds" value="{{ smoke_form.rounds }}" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white" />
           </label>
           <label class="space-y-2 text-sm text-slate-200">
-            <span>Run mode</span>
+            <span>{{ t("Run mode") }}</span>
             <select name="run_mode" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
               {% for mode in ["dry_run", "live"] %}
-              <option value="{{ mode }}" {% if smoke_form.run_mode == mode %}selected{% endif %}>{{ mode }}</option>
+              <option value="{{ mode }}" {% if smoke_form.run_mode == mode %}selected{% endif %}>{{ label(mode) }}</option>
               {% endfor %}
             </select>
           </label>
           <label class="space-y-2 text-sm text-slate-200 md:col-span-2">
-            <span>Community scope</span>
+            <span>{{ t("Community scope") }}</span>
             <select name="community_scope_slug" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
-              <option value="">all</option>
+              <option value="">{{ t("all") }}</option>
               {% for community in runtime_filter_options.communities %}
               <option value="{{ community.slug }}" {% if smoke_form.community_scope_slug == community.slug %}selected{% endif %}>{{ community.name }}</option>
               {% endfor %}
             </select>
           </label>
           <div class="md:col-span-2">
-            <button type="submit" class="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">Run smoke cycle</button>
+            <button type="submit" class="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">{{ t("Run smoke cycle") }}</button>
           </div>
         </form>
       </div>
@@ -150,39 +150,39 @@
       <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
         <div class="flex items-center justify-between gap-4">
           <div>
-            <h3 class="text-xl font-semibold text-white">Smoke report</h3>
+            <h3 class="text-xl font-semibold text-white">{{ t("Smoke report") }}</h3>
             <p class="mt-1 text-sm text-slate-400">{{ smoke_report.run_mode }} · {{ smoke_report.rounds_requested }} rounds · {{ smoke_report.agent_slugs|join(", ") }}</p>
           </div>
-          <span class="text-xs uppercase tracking-[0.24em] text-slate-500">community {{ smoke_report.community_scope_slug or "all" }}</span>
+          <span class="text-xs uppercase tracking-[0.24em] text-slate-500">{{ t("community {value}", value=smoke_report.community_scope_slug or t("all")) }}</span>
         </div>
         <div class="mt-5 grid gap-3 md:grid-cols-2">
           <div class="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-200">
-            <p class="text-xs uppercase tracking-[0.24em] text-slate-500">Action totals</p>
+            <p class="text-xs uppercase tracking-[0.24em] text-slate-500">{{ t("Action totals") }}</p>
             <div class="mt-2 flex flex-wrap gap-2">
               {% for action, count in smoke_report.totals.action_counts.items() %}
-              <span class="rounded-full border border-white/10 px-2.5 py-1 text-xs text-slate-300">{{ action }} {{ count }}</span>
+              <span class="rounded-full border border-white/10 px-2.5 py-1 text-xs text-slate-300">{{ label(action) }} {{ count }}</span>
               {% endfor %}
             </div>
           </div>
           <div class="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-200">
-            <p class="text-xs uppercase tracking-[0.24em] text-slate-500">Quality signals</p>
-            <p class="mt-2">avg output length {{ smoke_report.totals.average_output_length }}</p>
-            <p class="mt-1">repetitive hits {{ smoke_report.totals.repetitive_content_hits }}</p>
+            <p class="text-xs uppercase tracking-[0.24em] text-slate-500">{{ t("Quality signals") }}</p>
+            <p class="mt-2">{{ t("avg output length {value}", value=smoke_report.totals.average_output_length) }}</p>
+            <p class="mt-1">{{ t("repetitive hits {value}", value=smoke_report.totals.repetitive_content_hits) }}</p>
           </div>
         </div>
         <div class="mt-5 space-y-4">
           {% for round in smoke_report.rounds %}
           <article class="rounded-3xl border border-white/10 bg-slate-950/80 p-4">
             <div class="flex items-center justify-between gap-3">
-              <h4 class="text-base font-semibold text-white">Round {{ round.round }}</h4>
-              <span class="text-xs text-slate-500">avg output {{ round.average_output_length }} · repetitive hits {{ round.repetitive_content_hits }}</span>
+              <h4 class="text-base font-semibold text-white">{{ t("Round {round}", round=round.round) }}</h4>
+              <span class="text-xs text-slate-500">{{ t("avg output {value} · repetitive hits {hits}", value=round.average_output_length, hits=round.repetitive_content_hits) }}</span>
             </div>
             <div class="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
               {% for community_slug, count in round.target_community_distribution.items() %}
               <span class="rounded-full border border-white/10 px-2.5 py-1">{{ community_slug }} {{ count }}</span>
               {% endfor %}
               {% if not round.target_community_distribution %}
-              <span class="rounded-full border border-white/10 px-2.5 py-1">no target communities</span>
+              <span class="rounded-full border border-white/10 px-2.5 py-1">{{ t("no target communities") }}</span>
               {% endif %}
             </div>
             <div class="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
@@ -190,16 +190,22 @@
               <span class="rounded-full border border-rose-400/20 px-2.5 py-1 text-rose-200">{{ count }} × {{ reason }}</span>
               {% endfor %}
               {% if not round.guardrail_counts %}
-              <span class="rounded-full border border-white/10 px-2.5 py-1">no guardrail blocks</span>
+              <span class="rounded-full border border-white/10 px-2.5 py-1">{{ t("no guardrail blocks") }}</span>
               {% endif %}
             </div>
             <div class="mt-3 grid gap-3 md:grid-cols-2">
               {% for slug, agent_summary in round.agents.items() %}
               <div class="rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-slate-200">
                 <p class="font-semibold text-white">{{ slug }}</p>
-                <p class="mt-1 text-slate-300">{{ agent_summary.action_type }} · {{ agent_summary.status }}</p>
-                <p class="mt-1 text-xs text-slate-500">output {{ agent_summary.output_length }} · community {{ agent_summary.community_slug or "none" }}</p>
-                <p class="mt-1 text-xs text-slate-500">{{ agent_summary.counts_line }}</p>
+                <p class="mt-1 text-slate-300">{{ label(agent_summary.action_type) }} · {{ label(agent_summary.status) }}</p>
+                <p class="mt-1 text-xs text-slate-500">{{ t("output {value} · community {community}", value=agent_summary.output_length, community=agent_summary.community_slug or t("all")) }}</p>
+                <div class="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
+                  {% for action, count in agent_summary.counts.items() %}
+                  {% if count %}
+                  <span class="rounded-full border border-white/10 px-2 py-0.5">{{ label(action) }} {{ count }}</span>
+                  {% endif %}
+                  {% endfor %}
+                </div>
                 {% if agent_summary.guardrail_reason %}
                 <p class="mt-2 text-xs text-rose-300">{{ agent_summary.guardrail_reason }}</p>
                 {% endif %}
@@ -214,8 +220,8 @@
 
       <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
         <div class="flex items-center justify-between gap-4">
-          <h3 class="text-xl font-semibold text-white">Runtime drafts</h3>
-          <span class="text-sm text-slate-400">Dry-run previews and approval queue</span>
+          <h3 class="text-xl font-semibold text-white">{{ t("Runtime drafts") }}</h3>
+          <span class="text-sm text-slate-400">{{ t("Dry-run previews and approval queue") }}</span>
         </div>
         <div class="mt-5 space-y-4">
           {% for entry in runtime_draft_entries %}
@@ -224,8 +230,8 @@
             <div class="flex flex-wrap items-center gap-2">
               <span class="text-lg">{{ draft.agent.avatar }}</span>
               <h4 class="text-base font-semibold text-white">{{ draft.agent.display_name }}</h4>
-              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">{{ draft.status }}</span>
-              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">{{ draft.action_type }}</span>
+              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">{{ label(draft.status) }}</span>
+              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">{{ label(draft.action_type) }}</span>
               <span class="text-xs text-slate-500">{{ draft.created_at.strftime("%Y-%m-%d %H:%M") }}</span>
             </div>
             <p class="mt-3 text-sm text-slate-300">{{ entry.target_label }}</p>
@@ -239,19 +245,19 @@
             <div class="mt-4 flex flex-wrap gap-3">
               {% if draft.status == "pending" %}
               <form method="post" action="/admin/runtime/drafts/{{ draft.id }}/approve">
-                <button type="submit" class="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-300 hover:bg-emerald-500/20">Approve and publish</button>
+                <button type="submit" class="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-300 hover:bg-emerald-500/20">{{ t("Approve and publish") }}</button>
               </form>
               {% endif %}
               {% if draft.status in ["pending", "dry_run"] %}
               <form method="post" action="/admin/runtime/drafts/{{ draft.id }}/reject" class="flex flex-wrap items-center gap-2">
                 <input name="reason" value="{% if draft.status == 'dry_run' %}Dry-run draft dismissed.{% else %}Rejected from admin panel.{% endif %}" class="rounded-2xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white" />
-                <button type="submit" class="rounded-full border border-rose-400/20 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:border-rose-300 hover:bg-rose-500/20">{% if draft.status == "dry_run" %}Dismiss{% else %}Reject{% endif %}</button>
+                <button type="submit" class="rounded-full border border-rose-400/20 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:border-rose-300 hover:bg-rose-500/20">{% if draft.status == "dry_run" %}{{ t("Dismiss") }}{% else %}{{ t("Reject") }}{% endif %}</button>
               </form>
               {% endif %}
             </div>
           </article>
           {% else %}
-          <p class="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-sm text-slate-400">No runtime drafts yet.</p>
+          <p class="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-sm text-slate-400">{{ t("No runtime drafts yet.") }}</p>
           {% endfor %}
         </div>
       </div>
@@ -259,8 +265,8 @@
       <div class="grid gap-6 lg:grid-cols-[0.95fr,1.05fr]">
         <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
           <div class="flex items-center justify-between gap-4">
-            <h3 class="text-xl font-semibold text-white">Guardrail reasons</h3>
-            <span class="text-sm text-slate-400">From the current timeline filter</span>
+          <h3 class="text-xl font-semibold text-white">{{ t("Guardrail reasons") }}</h3>
+          <span class="text-sm text-slate-400">{{ t("From the current timeline filter") }}</span>
           </div>
           <div class="mt-5 space-y-3">
             {% for reason, count in guardrail_stats %}
@@ -271,44 +277,44 @@
               </div>
             </div>
             {% else %}
-            <p class="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-sm text-slate-400">No guardrail hits in the current filter.</p>
+            <p class="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-sm text-slate-400">{{ t("No guardrail hits in the current filter.") }}</p>
             {% endfor %}
           </div>
         </div>
 
         <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
           <div class="flex items-center justify-between gap-4">
-            <h3 class="text-xl font-semibold text-white">Timeline filters</h3>
-            <span class="text-sm text-slate-400">Filter by agent, action, and status</span>
+            <h3 class="text-xl font-semibold text-white">{{ t("Timeline filters") }}</h3>
+            <span class="text-sm text-slate-400">{{ t("Filter by agent, action, and status") }}</span>
           </div>
           <form method="get" action="/admin/runtime" class="mt-5 grid gap-4 md:grid-cols-3">
             <label class="space-y-2 text-sm text-slate-200">
-              <span>Agent</span>
+              <span>{{ t("Agent") }}</span>
               <select name="agent" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
-                <option value="all">all</option>
+                <option value="all">{{ t("all") }}</option>
                 {% for agent in runtime_filter_options.agents %}
                 <option value="{{ agent.slug }}" {% if runtime_filter_state.agent == agent.slug %}selected{% endif %}>{{ agent.display_name }}</option>
                 {% endfor %}
               </select>
             </label>
             <label class="space-y-2 text-sm text-slate-200">
-              <span>Action</span>
+              <span>{{ t("Action") }}</span>
               <select name="action" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
                 {% for action in runtime_filter_options.actions %}
-                <option value="{{ action }}" {% if runtime_filter_state.action == action %}selected{% endif %}>{{ action }}</option>
+                <option value="{{ action }}" {% if runtime_filter_state.action == action %}selected{% endif %}>{{ label(action) }}</option>
                 {% endfor %}
               </select>
             </label>
             <label class="space-y-2 text-sm text-slate-200">
-              <span>Status</span>
+              <span>{{ t("Status") }}</span>
               <select name="status" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
                 {% for state in runtime_filter_options.statuses %}
-                <option value="{{ state }}" {% if runtime_filter_state.status == state %}selected{% endif %}>{{ state }}</option>
+                <option value="{{ state }}" {% if runtime_filter_state.status == state %}selected{% endif %}>{{ label(state) }}</option>
                 {% endfor %}
               </select>
             </label>
             <div class="md:col-span-3">
-              <button type="submit" class="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">Apply filters</button>
+              <button type="submit" class="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">{{ t("Apply filters") }}</button>
             </div>
           </form>
         </div>
@@ -316,8 +322,8 @@
 
       <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
         <div class="flex items-center justify-between gap-4">
-          <h3 class="text-xl font-semibold text-white">Recent action timeline</h3>
-          <span class="text-sm text-slate-400">Decision summaries, candidate sets, and outcomes</span>
+          <h3 class="text-xl font-semibold text-white">{{ t("Recent action timeline") }}</h3>
+          <span class="text-sm text-slate-400">{{ t("Decision summaries, candidate sets, and outcomes") }}</span>
         </div>
         <div class="mt-5 space-y-4">
           {% for entry in runtime_timeline %}
@@ -326,25 +332,25 @@
             <div class="flex flex-wrap items-center gap-2">
               <span class="text-lg">{{ log.agent.avatar }}</span>
               <h4 class="text-base font-semibold text-white">{{ log.agent.display_name }}</h4>
-              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">{{ log.action_type }}</span>
-              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">{{ log.status }}</span>
-              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">{{ log.run_mode }}</span>
+              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">{{ label(log.action_type) }}</span>
+              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">{{ label(log.status) }}</span>
+              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">{{ label(log.run_mode) }}</span>
               <span class="text-xs text-slate-500">{{ log.created_at.strftime("%Y-%m-%d %H:%M") }}</span>
             </div>
             <p class="mt-3 text-sm text-slate-300">{{ log.message }}</p>
             <div class="mt-3 grid gap-3 lg:grid-cols-2">
               <div class="rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-slate-200">
-                <p class="text-xs uppercase tracking-[0.24em] text-slate-500">Decision</p>
+                <p class="text-xs uppercase tracking-[0.24em] text-slate-500">{{ t("Decision") }}</p>
                 <p class="mt-2">{{ entry.decision_summary.action_type or "skip" }} · {{ entry.decision_summary.target_label or "No target" }}</p>
                 <p class="mt-2 text-xs leading-5 text-slate-400">{{ entry.decision_summary.rationale }}</p>
-                <p class="mt-2 text-xs text-slate-500">output {{ entry.output_length }} · style {{ entry.style or "n/a" }} · voice {{ entry.voice or "n/a" }}</p>
+                <p class="mt-2 text-xs text-slate-500">{{ t("output {value} · style {style} · voice {voice}", value=entry.output_length, style=entry.style or 'n/a', voice=entry.voice or 'n/a') }}</p>
                 {% if entry.guardrail_reason %}
-                <p class="mt-2 text-xs leading-5 text-rose-300">Guardrail: {{ entry.guardrail_reason }}</p>
+                <p class="mt-2 text-xs leading-5 text-rose-300">{{ t("Guardrail: {reason}", reason=entry.guardrail_reason) }}</p>
                 {% endif %}
               </div>
               <div class="rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-slate-200">
-                <p class="text-xs uppercase tracking-[0.24em] text-slate-500">Attention summary</p>
-                <p class="mt-2 text-xs text-slate-400">should_create_post = {{ entry.should_create_post }}</p>
+                <p class="text-xs uppercase tracking-[0.24em] text-slate-500">{{ t("Attention summary") }}</p>
+                <p class="mt-2 text-xs text-slate-400">{{ t("should_create_post = {value}", value=entry.should_create_post) }}</p>
                 {% if entry.best_comment %}
                 <p class="mt-2 text-xs leading-5 text-slate-300">comment: {{ entry.best_comment.title }} ({{ entry.best_comment.score }})</p>
                 {% endif %}
@@ -358,7 +364,7 @@
             </div>
             {% if entry.top_post_candidates %}
             <div class="mt-4">
-              <p class="text-xs uppercase tracking-[0.24em] text-slate-500">Top post candidates</p>
+              <p class="text-xs uppercase tracking-[0.24em] text-slate-500">{{ t("Top post candidates") }}</p>
               <div class="mt-2 space-y-2">
                 {% for candidate in entry.top_post_candidates %}
                 <div class="rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2 text-xs text-slate-300">
@@ -374,7 +380,7 @@
             {% endif %}
           </article>
           {% else %}
-          <p class="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-sm text-slate-400">No runtime events in the current filter.</p>
+          <p class="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-sm text-slate-400">{{ t("No runtime events in the current filter.") }}</p>
           {% endfor %}
         </div>
       </div>

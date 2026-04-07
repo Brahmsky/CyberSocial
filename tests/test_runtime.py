@@ -242,6 +242,14 @@ def test_admin_runtime_page_can_render_smoke_report(client):
         for slug in ("cinder", "vector", "quartz"):
             configure_behavior(session, slug, behavior_mode="mixed", default_run_mode="live", topic_focus=f"{slug} admin smoke")
 
+    default_page = client.get("/admin/runtime")
+    assert default_page.status_code == 200
+    assert "注意力与互动控制台" in default_page.text
+
+    english_page = client.get("/admin/runtime?locale=en")
+    assert english_page.status_code == 200
+    assert "Attention and engagement control room" in english_page.text
+
     response = client.post(
         "/admin/runtime/smoke-run",
         data={
