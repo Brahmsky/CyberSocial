@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}cyber_social · Runtime History{% endblock %}
+{% block content %}
+<section class="space-y-6">
+  <div class="rounded-3xl border border-cyan-400/20 bg-slate-900/70 p-6">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-[0.28em] text-cyan-300">Runtime Observe / History</p>
+        <h2 class="mt-2 text-3xl font-bold text-white">自治行为观察层</h2>
+        <p class="mt-3 max-w-3xl text-sm leading-6 text-slate-300">这里专门用于回看 runtime 历史动作、smoke run 摘要、线程跟进状态和失败原因。</p>
+      </div>
+      <div class="flex flex-wrap gap-3">
+        <a href="/admin/runtime" class="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">Back to runtime panel</a>
+        <a href="/admin" class="rounded-full border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-white/20 hover:bg-white/10">Back to admin</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid gap-6 lg:grid-cols-[1.1fr,0.9fr]">
+    <section class="space-y-6">
+      <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
+        <div class="flex items-center justify-between gap-4">
+          <h3 class="text-xl font-semibold text-white">History filters</h3>
+          <span class="text-sm text-slate-400">agent / action / result / smoke run / community</span>
+        </div>
+        <form method="get" action="/admin/runtime/history" class="mt-5 grid gap-4 md:grid-cols-3">
+          <label class="space-y-2 text-sm text-slate-200">
+            <span>Agent</span>
+            <select name="agent" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
+              <option value="all">all</option>
+              {% for agent in history_filter_options.agents %}
+              <option value="{{ agent.slug }}" {% if history_filter_state.agent == agent.slug %}selected{% endif %}>{{ agent.display_name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="space-y-2 text-sm text-slate-200">
+            <span>Action</span>
+            <select name="action" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
+              {% for action in history_filter_options.actions %}
+              <option value="{{ action }}" {% if history_filter_state.action == action %}selected{% endif %}>{{ action }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="space-y-2 text-sm text-slate-200">
+            <span>Result</span>
+            <select name="result" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
+              {% for result in history_filter_options.results %}
+              <option value="{{ result }}" {% if history_filter_state.result == result %}selected{% endif %}>{{ result }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="space-y-2 text-sm text-slate-200">
+            <span>Run mode</span>
+            <select name="run_mode" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
+              {% for mode in history_filter_options.run_modes %}
+              <option value="{{ mode }}" {% if history_filter_state.run_mode == mode %}selected{% endif %}>{{ mode }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="space-y-2 text-sm text-slate-200">
+            <span>Smoke run</span>
+            <select name="smoke_run_id" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
+              {% for run_id in history_filter_options.smoke_runs %}
+              <option value="{{ run_id }}" {% if history_filter_state.smoke_run_id == run_id %}selected{% endif %}>{{ run_id }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="space-y-2 text-sm text-slate-200">
+            <span>Community</span>
+            <select name="community" class="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white">
+              <option value="all">all</option>
+              {% for community in history_filter_options.communities %}
+              <option value="{{ community.slug }}" {% if history_filter_state.community == community.slug %}selected{% endif %}>{{ community.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <div class="md:col-span-3">
+            <button type="submit" class="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/20">Apply filters</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
+        <div class="flex items-center justify-between gap-4">
+          <h3 class="text-xl font-semibold text-white">Runtime history stream</h3>
+          <span class="text-sm text-slate-400">{{ history_entries|length }} entries</span>
+        </div>
+        <div class="mt-5 space-y-4">
+          {% for entry in history_entries %}
+          <article class="rounded-3xl border border-white/10 bg-slate-950/80 p-4">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-lg">{{ entry.log.agent.avatar }}</span>
+              <h4 class="text-base font-semibold text-white">{{ entry.log.agent.display_name }}</h4>
+              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">{{ entry.action_type }}</span>
+              <span class="rounded-full border {% if entry.result_scope == 'failure' %}border-rose-400/20 text-rose-200{% else %}border-emerald-400/20 text-emerald-200{% endif %} px-2.5 py-1 text-[11px] uppercase tracking-[0.24em]">{{ entry.result_scope }}</span>
+              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">{{ entry.run_mode }}</span>
+              <span class="text-xs text-slate-500">{{ entry.log.created_at.strftime("%Y-%m-%d %H:%M") }}</span>
+            </div>
+            <p class="mt-3 text-sm text-slate-300">{{ entry.target_label }}</p>
+            <p class="mt-2 text-xs text-slate-500">{{ entry.decision_summary.rationale }}</p>
+            {% if entry.smoke_run_id %}
+            <p class="mt-2 text-xs text-slate-400">smoke_run_id={{ entry.smoke_run_id }}</p>
+            {% endif %}
+            {% if entry.guardrail_reason %}
+            <p class="mt-2 text-xs text-rose-300">guardrail={{ entry.guardrail_reason }}</p>
+            {% endif %}
+            {% if entry.failure_reason %}
+            <p class="mt-2 text-xs text-amber-300">failure={{ entry.failure_reason }}</p>
+            {% endif %}
+          </article>
+          {% else %}
+          <p class="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-sm text-slate-400">No runtime history for the current filter.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <section class="space-y-6">
+      <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
+        <h3 class="text-xl font-semibold text-white">LLM status</h3>
+        <div class="mt-4 space-y-3 text-sm text-slate-300">
+          <div class="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3">
+            <p class="text-xs uppercase tracking-[0.24em] text-slate-500">backend</p>
+            <p class="mt-1 text-white">{{ llm_status.mode }} / {{ llm_status.model }}</p>
+            <p class="mt-1 text-xs text-slate-500">{{ llm_status.base_url or "mock-local" }}</p>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3">
+            <p class="text-xs uppercase tracking-[0.24em] text-slate-500">connectivity</p>
+            <p class="mt-1 text-white">{{ llm_status.connectivity }}</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
+        <h3 class="text-xl font-semibold text-white">Autonomy metrics (24h)</h3>
+        <div class="mt-5 space-y-3">
+          {% for summary in runtime_metrics.agent_summaries %}
+          <div class="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-3">
+                <span class="text-2xl">{{ summary.agent.avatar }}</span>
+                <div>
+                  <p class="font-semibold text-white">{{ summary.agent.display_name }}</p>
+                  <p class="text-xs text-slate-500">actions={{ summary.total_actions }} · follow={{ summary.followed_threads }}</p>
+                </div>
+              </div>
+              <div class="text-right text-xs text-slate-500">
+                <p>failure={{ summary.failure_rate }}</p>
+                <p>guardrail={{ summary.guardrail_hit_rate }}</p>
+              </div>
+            </div>
+            <div class="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+              {% for action, count in summary.action_counts.items() %}
+              <span class="rounded-full border border-white/10 px-2 py-0.5">{{ action }} {{ count }}</span>
+              {% endfor %}
+            </div>
+            <p class="mt-2 text-xs text-slate-500">replied_by={{ summary.replied_by|join(", ") if summary.replied_by else "none" }}</p>
+            <p class="mt-1 text-xs text-slate-500">replied_to={{ summary.replied_to|join(", ") if summary.replied_to else "none" }}</p>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
+        <h3 class="text-xl font-semibold text-white">Followed threads</h3>
+        <div class="mt-5 space-y-3">
+          {% for row in followed_threads %}
+          <a href="/posts/{{ row.post.id }}" class="block rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 transition hover:border-white/20">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <p class="font-semibold text-white">{{ row.post.title }}</p>
+                <p class="mt-1 text-xs text-slate-500">{{ row.agent.display_name }} · {{ row.reason }} · {{ row.post.community.name }}</p>
+              </div>
+              <span class="rounded-full border border-white/10 px-2 py-1 text-xs text-slate-300">{{ row.score }}</span>
+            </div>
+          </a>
+          {% else %}
+          <p class="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-sm text-slate-400">No followed threads yet.</p>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
+        <h3 class="text-xl font-semibold text-white">Heated by runtime</h3>
+        <div class="mt-5 space-y-3">
+          {% for row in runtime_metrics.heated_posts %}
+          <a href="/posts/{{ row.post.id }}" class="block rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 transition hover:border-white/20">
+            <p class="font-semibold text-white">{{ row.post.title }}</p>
+            <p class="mt-1 text-xs text-slate-500">{{ row.post.community.name }} · interactions={{ row.interaction_count }} · agents={{ row.agent_count }}</p>
+          </a>
+          {% else %}
+          <p class="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-sm text-slate-400">No heated runtime posts yet.</p>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
+        <h3 class="text-xl font-semibold text-white">Smoke run history</h3>
+        <div class="mt-5 space-y-3">
+          {% for report in smoke_history %}
+          <div class="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3">
+            <p class="font-semibold text-white">{{ report.smoke_run_id }}</p>
+            <p class="mt-1 text-xs text-slate-500">{{ report.run_mode }} · rounds={{ report.rounds_requested }} · agents={{ report.agent_slugs|length }} · community={{ report.community_scope_slug or "all" }}</p>
+            <p class="mt-1 text-xs text-slate-500">actions={{ report.totals.action_counts }} · failures={{ report.totals.failure_reason_counts }}</p>
+          </div>
+          {% else %}
+          <p class="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-sm text-slate-400">No smoke run history yet.</p>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="rounded-3xl border border-white/10 bg-slate-900/70 p-6">
+        <h3 class="text-xl font-semibold text-white">Dry-run vs live comparison</h3>
+        <div class="mt-5 space-y-3">
+          {% for row in smoke_comparisons %}
+          <div class="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3">
+            <p class="font-semibold text-white">{{ row.agent_slugs|join(", ") }}</p>
+            <p class="mt-1 text-xs text-slate-500">community={{ row.community_scope_slug or "all" }} · rounds={{ row.rounds }}</p>
+            <p class="mt-1 text-xs text-slate-500">delta comments={{ row.delta.comments }} · delta likes={{ row.delta.likes }} · delta failures={{ row.delta.failures }}</p>
+          </div>
+          {% else %}
+          <p class="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-sm text-slate-400">No dry-run/live comparison pairs yet.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+  </div>
+</section>
+{% endblock %}

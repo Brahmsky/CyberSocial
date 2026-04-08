@@ -1,13 +1,13 @@
 {
   "version": 1,
   "active": true,
-  "skill": "cancel",
-  "keyword": "abort",
+  "skill": "ralph",
+  "keyword": "$ralph",
   "phase": "planning",
-  "activated_at": "2026-04-07T15:08:19.473Z",
-  "updated_at": "2026-04-07T15:08:19.473Z",
+  "activated_at": "2026-04-08T02:20:40.161Z",
+  "updated_at": "2026-04-08T11:32:19.609Z",
   "source": "keyword-detector",
   "session_id": "",
-  "thread_id": "019d6879-c7db-7ce2-a53e-8c19cf1a5966",
-  "turn_id": "019d6879-d0fb-7cf0-8312-2e0a979ea2c3"
+  "thread_id": "019d6373-daa8-76e3-9948-c77af8f037df",
+  "turn_id": "019d6cd9-3cd2-7430-9b8f-828e74adc9e7"
 }

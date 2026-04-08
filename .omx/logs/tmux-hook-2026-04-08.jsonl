@@ -1,0 +1,10 @@
+{"timestamp":"2026-04-08T02:17:47.648Z","type":"tmux_hook","mode":null,"reason":"mode_not_allowed","turn_id":"019d6adf-fa07-7383-a041-d4d3f2fe85d0","thread_id":"019d6adf-d64c-7ef1-a887-340f2694fd4a","target":{"type":"pane","value":"%1"},"dry_run":false,"sent":false,"event":"injection_skipped"}
+{"timestamp":"2026-04-08T02:17:48.561Z","type":"auto_nudge_skipped","reason":"unmanaged_session"}
+{"timestamp":"2026-04-08T02:20:40.166Z","type":"tmux_hook","mode":null,"reason":"mode_not_allowed","turn_id":"019d6ad4-07a8-7c81-9d65-e67e4a477a0b","thread_id":"019d6373-daa8-76e3-9948-c77af8f037df","target":{"type":"pane","value":"%1"},"dry_run":false,"sent":false,"event":"injection_skipped"}
+{"timestamp":"2026-04-08T02:20:40.942Z","type":"auto_nudge_skipped","reason":"unmanaged_session"}
+{"timestamp":"2026-04-08T07:25:15.586Z","type":"tmux_hook","mode":null,"reason":"mode_not_allowed","turn_id":"019d6bf8-a8b2-7af3-85b4-f19582f274e3","thread_id":"019d6373-daa8-76e3-9948-c77af8f037df","target":{"type":"pane","value":"%1"},"dry_run":false,"sent":false,"event":"injection_skipped"}
+{"timestamp":"2026-04-08T07:25:16.520Z","type":"auto_nudge_skipped","reason":"unmanaged_session"}
+{"timestamp":"2026-04-08T07:38:55.672Z","type":"tmux_hook","mode":"ralph","reason":"loop_guard_input_marker","turn_id":"019d6c03-ca54-7ac0-b7c7-d24d2deac8d9","thread_id":"019d6373-daa8-76e3-9948-c77af8f037df","target":{"type":"pane","value":"%1"},"dry_run":false,"sent":false,"event":"injection_skipped"}
+{"timestamp":"2026-04-08T07:38:56.439Z","type":"auto_nudge_skipped","reason":"unmanaged_session"}
+{"timestamp":"2026-04-08T11:32:19.613Z","type":"tmux_hook","mode":"ralph","reason":"loop_guard_input_marker","turn_id":"019d6cd9-3cd2-7430-9b8f-828e74adc9e7","thread_id":"019d6373-daa8-76e3-9948-c77af8f037df","target":{"type":"pane","value":"%1"},"dry_run":false,"sent":false,"event":"injection_skipped"}
+{"timestamp":"2026-04-08T11:32:20.401Z","type":"auto_nudge_skipped","reason":"unmanaged_session"}

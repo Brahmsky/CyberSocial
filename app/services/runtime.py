@@ -41,9 +41,11 @@ _SMOKE_RUN_STATE: dict[str, Any] = {
     "abort_requested": False,
     "current_round": 0,
     "current_agent_slug": None,
+    "current_smoke_run_id": None,
     "run_mode": None,
     "community_scope_slug": None,
     "last_report": None,
+    "history": [],
     "last_started_at": None,
     "last_finished_at": None,
 }
@@ -438,11 +440,157 @@ def get_smoke_run_status() -> dict[str, Any]:
         return dict(_SMOKE_RUN_STATE)
 
 
+def get_smoke_run_history(*, limit: int = 12) -> list[dict[str, Any]]:
+    with _SMOKE_RUN_LOCK:
+        history = list(_SMOKE_RUN_STATE["history"])
+    return history[:limit]
+
+
+def build_smoke_run_comparisons(*, limit: int = 6) -> list[dict[str, Any]]:
+    history = get_smoke_run_history(limit=40)
+    grouped: dict[str, dict[str, dict[str, Any]]] = {}
+    for report in history:
+        compare_key = report.get("compare_key")
+        if not compare_key:
+            continue
+        grouped.setdefault(compare_key, {})[report["run_mode"]] = report
+    comparisons: list[dict[str, Any]] = []
+    for compare_key, pair in grouped.items():
+        dry_report = pair.get("dry_run")
+        live_report = pair.get("live")
+        if not dry_report or not live_report:
+            continue
+        comparisons.append(
+            {
+                "compare_key": compare_key,
+                "agent_slugs": dry_report["agent_slugs"],
+                "community_scope_slug": dry_report.get("community_scope_slug"),
+                "rounds": dry_report["rounds_requested"],
+                "dry_run": dry_report,
+                "live": live_report,
+                "delta": {
+                    "comments": live_report["totals"]["action_counts"].get("comment", 0) - dry_report["totals"]["action_counts"].get("comment", 0),
+                    "likes": (
+                        live_report["totals"]["action_counts"].get("like_post", 0)
+                        + live_report["totals"]["action_counts"].get("like_comment", 0)
+                        - dry_report["totals"]["action_counts"].get("like_post", 0)
+                        - dry_report["totals"]["action_counts"].get("like_comment", 0)
+                    ),
+                    "failures": sum(live_report["totals"]["failure_reason_counts"].values()) - sum(dry_report["totals"]["failure_reason_counts"].values()),
+                },
+            }
+        )
+    comparisons.sort(key=lambda item: item["live"].get("finished_at", ""), reverse=True)
+    return comparisons[:limit]
+
+
 def request_smoke_run_abort() -> dict[str, Any]:
     with _SMOKE_RUN_LOCK:
         if _SMOKE_RUN_STATE["running"]:
             _SMOKE_RUN_STATE["abort_requested"] = True
         return dict(_SMOKE_RUN_STATE)
+
+
+def build_history_entries(
+    session: Session,
+    *,
+    agent_slug: str | None = None,
+    action_type: str | None = None,
+    result_scope: str | None = None,
+    run_mode: str | None = None,
+    smoke_run_id: str | None = None,
+    community_slug: str | None = None,
+    limit: int = 160,
+) -> list[dict[str, Any]]:
+    logs = list_runtime_logs(
+        session,
+        agent_slug=agent_slug if agent_slug and agent_slug != "all" else None,
+        action_type=action_type if action_type and action_type != "all" else None,
+        limit=limit,
+    )
+    entries: list[dict[str, Any]] = []
+    for log in logs:
+        details = _load_json_object(log.details_json)
+        decision = details.get("decision", {})
+        resolved_community_slug = _decision_community_slug(session, decision)
+        history_result = "failure" if log.status == "failed" or details.get("llm_error_category") or details.get("guardrail_reason") else "success"
+        entry = {
+            "log": log,
+            "agent_slug": log.agent.slug,
+            "action_type": log.action_type,
+            "run_mode": log.run_mode,
+            "result_scope": history_result,
+            "smoke_run_id": details.get("smoke_run_id"),
+            "community_slug": resolved_community_slug,
+            "target_label": _target_label(session, log.action_type, decision.get("target_post_id"), decision.get("target_comment_id")),
+            "decision_summary": details.get("decision_summary", {}),
+            "failure_reason": details.get("llm_error_category") or details.get("failure_category"),
+            "guardrail_reason": details.get("guardrail_reason"),
+        }
+        if run_mode and run_mode != "all" and entry["run_mode"] != run_mode:
+            continue
+        if result_scope and result_scope != "all" and entry["result_scope"] != result_scope:
+            continue
+        if smoke_run_id and smoke_run_id != "all" and entry["smoke_run_id"] != smoke_run_id:
+            continue
+        if community_slug and community_slug != "all" and entry["community_slug"] != community_slug:
+            continue
+        entries.append(entry)
+    return entries
+
+
+def build_runtime_metrics(session: Session, *, hours: int = 24) -> dict[str, Any]:
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    logs = list_runtime_logs(session, limit=300)
+    recent_logs = [log for log in logs if log.created_at >= cutoff]
+    agent_summaries: list[dict[str, Any]] = []
+    for config in list_behavior_configs(session):
+        agent_logs = [log for log in recent_logs if log.agent_id == config.agent.id]
+        total = len(agent_logs)
+        failures = [
+            log
+            for log in agent_logs
+            if _load_json_object(log.details_json).get("llm_error_category") or _load_json_object(log.details_json).get("guardrail_reason") or log.status == "failed"
+        ]
+        guardrails = [log for log in agent_logs if _load_json_object(log.details_json).get("guardrail_reason")]
+        memory_state = summarize_memory(get_or_create_runtime_memory(session, config.agent))
+        agent_summaries.append(
+            {
+                "agent": config.agent,
+                "total_actions": total,
+                "action_counts": {action: len([log for log in agent_logs if log.action_type == action]) for action in ACTION_TYPES},
+                "failure_rate": round(len(failures) / total, 3) if total else 0.0,
+                "guardrail_hit_rate": round(len(guardrails) / total, 3) if total else 0.0,
+                "followed_threads": len(memory_state["recent_participated_post_ids"]),
+                "replied_by": _recent_replied_by(config.agent, cutoff),
+                "replied_to": _recent_followed_agent_slugs(memory_state),
+            }
+        )
+
+    heated_posts: dict[int, dict[str, Any]] = {}
+    for log in recent_logs:
+        details = _load_json_object(log.details_json)
+        decision = details.get("decision", {})
+        post_id = decision.get("target_post_id")
+        if not post_id:
+            continue
+        heated_posts.setdefault(post_id, {"count": 0, "agents": set(), "post": forum.get_post(session, int(post_id))})
+        heated_posts[post_id]["count"] += 1
+        heated_posts[post_id]["agents"].add(log.agent.slug)
+    heated_rows = [
+        {
+            "post": row["post"],
+            "interaction_count": row["count"],
+            "agent_count": len(row["agents"]),
+        }
+        for row in heated_posts.values()
+        if row["post"] is not None
+    ]
+    heated_rows.sort(key=lambda row: (row["interaction_count"], row["agent_count"], row["post"].score), reverse=True)
+    return {
+        "agent_summaries": agent_summaries,
+        "heated_posts": heated_rows[:10],
+    }
 
 
 def build_draft_entries(session: Session, drafts: list[RuntimeDraft]) -> list[dict[str, Any]]:
@@ -479,7 +627,6 @@ def run_smoke_run(
         with database.session() as session:
             if forum.get_community(session, community_scope_slug) is None:
                 raise ValueError("Smoke run community scope was not found.")
-    _start_smoke_run(agent_slugs=unique_agents, run_mode=run_mode, community_scope_slug=community_scope_slug)
     if run_mode == "dry_run":
         try:
             report = _run_smoke_run_on_cloned_database(
@@ -516,7 +663,23 @@ def _run_smoke_run_on_database(
     run_mode: str,
     community_scope_slug: str | None,
 ) -> dict[str, Any]:
+    smoke_run_id = datetime.utcnow().strftime("smoke-%Y%m%dT%H%M%S")
+    compare_key = "|".join(
+        (
+            ",".join(agent_slugs),
+            str(rounds),
+            community_scope_slug or "all",
+        )
+    )
+    _start_smoke_run(
+        smoke_run_id=smoke_run_id,
+        agent_slugs=agent_slugs,
+        run_mode=run_mode,
+        community_scope_slug=community_scope_slug,
+    )
     report = {
+        "smoke_run_id": smoke_run_id,
+        "compare_key": compare_key,
         "agent_slugs": agent_slugs,
         "rounds_requested": rounds,
         "run_mode": run_mode,
@@ -562,6 +725,7 @@ def _run_smoke_run_on_database(
                     run_mode=run_mode,
                     triggered_by="smoke_run",
                     community_scope_slug=community_scope_slug,
+                    smoke_run_id=smoke_run_id,
                 )
                 agent_summary = _build_smoke_agent_summary(session, outcome)
                 round_summary["agents"][slug] = agent_summary
@@ -586,6 +750,7 @@ def _run_smoke_run_on_database(
             break
 
     report["totals"]["average_output_length"] = round(sum(all_output_lengths) / len(all_output_lengths), 2) if all_output_lengths else 0.0
+    report["finished_at"] = datetime.utcnow().isoformat()
     _store_smoke_run_report(report)
     return report
 
@@ -641,6 +806,7 @@ def run_agent_cycle(
     run_mode: str = "default",
     triggered_by: str = "manual",
     community_scope_slug: str | None = None,
+    smoke_run_id: str | None = None,
 ) -> RuntimeOutcome:
     state = get_runtime_state(session, settings)
     agent = get_agent_for_runtime(session, agent_slug)
@@ -721,6 +887,7 @@ def run_agent_cycle(
         "memory_summary": summarize_memory(memory),
         "community_scope_slug": community_scope_slug,
         "llm_mode": state.llm_backend,
+        "smoke_run_id": smoke_run_id,
     }
     if adapter_warning:
         details["adapter_warning"] = adapter_warning
@@ -1775,7 +1942,7 @@ def _increment_counter(counter: dict[str, int], key: str) -> None:
     counter[key] = counter.get(key, 0) + 1
 
 
-def _start_smoke_run(*, agent_slugs: list[str], run_mode: str, community_scope_slug: str | None) -> None:
+def _start_smoke_run(*, smoke_run_id: str, agent_slugs: list[str], run_mode: str, community_scope_slug: str | None) -> None:
     with _SMOKE_RUN_LOCK:
         _SMOKE_RUN_STATE.update(
             {
@@ -1783,6 +1950,7 @@ def _start_smoke_run(*, agent_slugs: list[str], run_mode: str, community_scope_s
                 "abort_requested": False,
                 "current_round": 0,
                 "current_agent_slug": None,
+                "current_smoke_run_id": smoke_run_id,
                 "agent_slugs": list(agent_slugs),
                 "run_mode": run_mode,
                 "community_scope_slug": community_scope_slug,
@@ -1805,6 +1973,9 @@ def _smoke_run_should_abort() -> bool:
 def _store_smoke_run_report(report: dict[str, Any]) -> None:
     with _SMOKE_RUN_LOCK:
         _SMOKE_RUN_STATE["last_report"] = report
+        history = [item for item in _SMOKE_RUN_STATE["history"] if item.get("smoke_run_id") != report.get("smoke_run_id")]
+        history.insert(0, report)
+        _SMOKE_RUN_STATE["history"] = history[:20]
 
 
 def _finish_smoke_run() -> None:
@@ -1812,6 +1983,7 @@ def _finish_smoke_run() -> None:
         _SMOKE_RUN_STATE["running"] = False
         _SMOKE_RUN_STATE["current_round"] = 0
         _SMOKE_RUN_STATE["current_agent_slug"] = None
+        _SMOKE_RUN_STATE["current_smoke_run_id"] = None
         _SMOKE_RUN_STATE["abort_requested"] = False
         _SMOKE_RUN_STATE["last_finished_at"] = datetime.utcnow().isoformat()
 

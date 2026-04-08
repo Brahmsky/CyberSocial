@@ -4,10 +4,8 @@
     "%1": 1
   },
   "session_counts": {},
-  "recent_keys": {
-    "c0eaa61a5456e7d97655485efdf08b88e6709f1fe946b3d4b86916bd0d8414f5": 1775553851756
-  },
+  "recent_keys": {},
   "last_injection_ts": 1775553851756,
-  "last_reason": "mode_not_allowed",
-  "last_event_at": "2026-04-07T15:10:55.526Z"
+  "last_reason": "loop_guard_input_marker",
+  "last_event_at": "2026-04-08T11:32:19.613Z"
 }

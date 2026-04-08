@@ -43,6 +43,7 @@ def runtime_context(
     status_filter: str = "all",
     smoke_report: dict | None = None,
     smoke_form: dict | None = None,
+    llm_check: dict | None = None,
     status_message: str | None = None,
     error_message: str | None = None,
 ) -> dict:
@@ -61,6 +62,7 @@ def runtime_context(
     return {
         "runtime_state": runtime_state,
         "llm_status": runtime.llm.get_llm_status_snapshot(settings, runtime_state.llm_backend),
+        "llm_check": llm_check,
         "behavior_configs": runtime.list_behavior_configs(session),
         "agent_autonomy_summaries": runtime.build_agent_autonomy_summaries(session),
         "followed_threads": runtime.build_followed_threads_snapshot(session),
@@ -81,6 +83,58 @@ def runtime_context(
             "actions": ["all", *sorted(runtime.ACTION_TYPES)],
             "statuses": ["all", *sorted(runtime.LOG_STATUSES)],
             "communities": communities,
+        },
+        "status_message": status_message,
+        "error_message": error_message,
+    }
+
+
+def runtime_history_context(
+    session: Session,
+    *,
+    settings,
+    agent_filter: str = "all",
+    action_filter: str = "all",
+    result_filter: str = "all",
+    run_mode_filter: str = "all",
+    smoke_run_filter: str = "all",
+    community_filter: str = "all",
+    status_message: str | None = None,
+    error_message: str | None = None,
+) -> dict:
+    history_entries = runtime.build_history_entries(
+        session,
+        agent_slug=agent_filter,
+        action_type=action_filter,
+        result_scope=result_filter,
+        run_mode=run_mode_filter,
+        smoke_run_id=smoke_run_filter,
+        community_slug=community_filter,
+    )
+    smoke_history = runtime.get_smoke_run_history(limit=12)
+    return {
+        "llm_status": runtime.llm.get_llm_status_snapshot(settings),
+        "history_entries": history_entries,
+        "followed_threads": runtime.build_followed_threads_snapshot(session),
+        "agent_autonomy_summaries": runtime.build_agent_autonomy_summaries(session),
+        "runtime_metrics": runtime.build_runtime_metrics(session),
+        "smoke_history": smoke_history,
+        "smoke_comparisons": runtime.build_smoke_run_comparisons(),
+        "history_filter_state": {
+            "agent": agent_filter,
+            "action": action_filter,
+            "result": result_filter,
+            "run_mode": run_mode_filter,
+            "smoke_run_id": smoke_run_filter,
+            "community": community_filter,
+        },
+        "history_filter_options": {
+            "agents": forum.list_agents(session, active_only=False),
+            "actions": ["all", *sorted(runtime.ACTION_TYPES)],
+            "results": ["all", "success", "failure"],
+            "run_modes": ["all", *sorted(runtime.RUN_MODES)],
+            "smoke_runs": ["all", *[report["smoke_run_id"] for report in smoke_history]],
+            "communities": forum.list_communities(session),
         },
         "status_message": status_message,
         "error_message": error_message,
@@ -291,6 +345,43 @@ def admin_runtime_panel(request: Request, session: Session = Depends(get_session
             agent_filter=request.query_params.get("agent", "all"),
             action_filter=request.query_params.get("action", "all"),
             status_filter=request.query_params.get("status", "all"),
+        ),
+    )
+
+
+@router.get("/runtime/history")
+def admin_runtime_history(request: Request, session: Session = Depends(get_session)):
+    return render_template(
+        request,
+        "admin_runtime_history.html",
+        runtime_history_context(
+            session,
+            settings=request.app.state.settings,
+            agent_filter=request.query_params.get("agent", "all"),
+            action_filter=request.query_params.get("action", "all"),
+            result_filter=request.query_params.get("result", "all"),
+            run_mode_filter=request.query_params.get("run_mode", "all"),
+            smoke_run_filter=request.query_params.get("smoke_run_id", "all"),
+            community_filter=request.query_params.get("community", "all"),
+        ),
+    )
+
+
+@router.post("/runtime/llm-check")
+def admin_runtime_llm_check(request: Request, session: Session = Depends(get_session)):
+    runtime_state = runtime.get_runtime_state(session, request.app.state.settings)
+    llm_check = runtime.llm.connectivity_check(request.app.state.settings, runtime_state.llm_backend)
+    status_message = "LLM connectivity check passed." if llm_check["ok"] else None
+    error_message = None if llm_check["ok"] else f"LLM connectivity check failed: {llm_check['error_category']}"
+    return render_template(
+        request,
+        "admin_runtime.html",
+        runtime_context(
+            session,
+            settings=request.app.state.settings,
+            llm_check=llm_check,
+            status_message=status_message,
+            error_message=error_message,
         ),
     )
 

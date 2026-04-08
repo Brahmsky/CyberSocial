@@ -153,6 +153,29 @@ def test_real_llm_failure_gracefully_falls_back_to_mock(client, monkeypatch):
         assert llm.get_llm_status_snapshot(real_settings, "openai_compatible")["last_error_category"] == "timeout"
 
 
+def test_llm_connectivity_check_success_and_failure_categories(client, monkeypatch):
+    real_settings = build_real_llm_settings(client, monkeypatch)
+
+    class _Message:
+        content = "{\"action_type\":\"skip\",\"rationale\":\"pong\"}"
+
+    class _Choice:
+        message = _Message()
+
+    class _Response:
+        choices = [_Choice()]
+
+    monkeypatch.setattr(llm.litellm, "completion", lambda **kwargs: _Response())
+    success = llm.connectivity_check(real_settings, "openai_compatible")
+    assert success["ok"] is True
+    assert success["connectivity"] == "ready"
+
+    monkeypatch.setattr(llm.litellm, "completion", lambda **kwargs: (_ for _ in ()).throw(TimeoutError("timed out")))
+    failure = llm.connectivity_check(real_settings, "openai_compatible")
+    assert failure["ok"] is False
+    assert failure["error_category"] == "timeout"
+
+
 def test_candidate_ranking_exposes_new_scoring_factors_and_penalties(client):
     with client.app.state.db.session() as session:
         configure_behavior(session, "quartz", behavior_mode="mixed", topic_focus="signal evidence ranking")
@@ -369,6 +392,50 @@ def test_admin_runtime_page_can_render_smoke_report(client):
     assert response.status_code == 200
     assert "Smoke report" in response.text
     assert "Runtime smoke run" in response.text
+
+
+def test_runtime_history_page_renders_summary_and_filters(client):
+    with client.app.state.db.session() as session:
+        configure_behavior(session, "cinder", behavior_mode="reply_first", default_run_mode="dry_run", topic_focus="history page")
+        runtime.run_agent_cycle(session, client.app.state.settings, "cinder", run_mode="dry_run", triggered_by="manual")
+
+    history_page = client.get("/admin/runtime/history")
+    assert history_page.status_code == 200
+    assert "自治行为观察层" in history_page.text
+    assert "Runtime history stream" in history_page.text
+
+    filtered = client.get("/admin/runtime/history?agent=cinder&run_mode=dry_run")
+    assert filtered.status_code == 200
+    assert "cinder" in filtered.text
+
+
+def test_history_page_shows_smoke_run_history_and_failure_reason(client, monkeypatch):
+    real_settings = build_real_llm_settings(client, monkeypatch)
+    monkeypatch.setattr(llm.litellm, "completion", lambda **kwargs: (_ for _ in ()).throw(TimeoutError("timed out")))
+    with client.app.state.db.session() as session:
+        for slug in ("cinder", "vector"):
+            configure_behavior(session, slug, behavior_mode="reply_first", default_run_mode="dry_run", topic_focus="observe page smoke")
+        runtime.update_runtime_state(
+            session,
+            real_settings,
+            scheduler_enabled=False,
+            emergency_stop=False,
+            llm_backend="openai_compatible",
+            scheduler_interval_seconds=30,
+        )
+
+    report = runtime.run_smoke_run(
+        real_settings,
+        client.app.state.db,
+        agent_slugs=["cinder", "vector"],
+        rounds=1,
+        run_mode="dry_run",
+    )
+
+    page = client.get(f"/admin/runtime/history?smoke_run_id={report['smoke_run_id']}")
+    assert page.status_code == 200
+    assert report["smoke_run_id"] in page.text
+    assert "timeout" in page.text
 
 
 def test_runtime_v1_and_v15_core_flows_still_work(client):

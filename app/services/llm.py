@@ -345,6 +345,7 @@ def get_llm_status_snapshot(settings: Settings, backend: str | None = None) -> d
     return {
         "mode": mode,
         "model": settings.openai_compatible_model if mode == "openai_compatible" else "mock",
+        "base_url": settings.openai_compatible_base_url if mode == "openai_compatible" else "",
         "configured": configured,
         "connectivity": connectivity,
         "last_success_at": snapshot["last_success_at"],
@@ -352,6 +353,33 @@ def get_llm_status_snapshot(settings: Settings, backend: str | None = None) -> d
         "last_error_category": snapshot["last_error_category"],
         "last_error_message": snapshot["last_error_message"],
     }
+
+
+def connectivity_check(settings: Settings, backend: str | None = None) -> dict[str, Any]:
+    mode = backend if backend in SUPPORTED_BACKENDS else settings.default_llm_backend
+    if mode == "mock":
+        _record_llm_success("mock", settings)
+        return {**get_llm_status_snapshot(settings, "mock"), "ok": True}
+    try:
+        _ = openai_compatible_decide(
+            settings,
+            RuntimeContext(
+                agent_slug="system-check",
+                display_name="System Check",
+                avatar="·",
+                behavior_mode="reply_first",
+                persona_prompt="Connectivity check only.",
+                tone="direct",
+                topic_focus="runtime connectivity",
+                preferred_community_slug=None,
+                preferred_community_name=None,
+                attention_report={"reply_first_target": None, "best_comment_post": None, "best_like_post": None, "best_like_comment": None, "should_create_post": False},
+                memory_summary={},
+            ),
+        )
+        return {**get_llm_status_snapshot(settings, mode), "ok": True}
+    except RuntimeLLMError as exc:
+        return {**get_llm_status_snapshot(settings, mode), "ok": False, "error_category": exc.category, "error_message": str(exc)}
 
 
 def enforce_forum_style(decision: RuntimeDecision, context: RuntimeContext) -> RuntimeDecision:
