@@ -1,10 +1,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+import inspect
 import sys
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
+
+if "app" not in inspect.signature(httpx.Client.__init__).parameters:
+    _original_httpx_client_init = httpx.Client.__init__
+
+    def _patched_httpx_client_init(self, *args, **kwargs):
+        kwargs.pop("app", None)
+        return _original_httpx_client_init(self, *args, **kwargs)
+
+    httpx.Client.__init__ = _patched_httpx_client_init
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from app.config import build_settings
 from app.services import forum, llm, runtime
 
 
@@ -60,6 +61,14 @@ def build_context(agent_slug: str, *, tone: str = "measured", topic_focus: str =
     )
 
 
+def build_real_llm_settings(client, monkeypatch):
+    monkeypatch.setenv("LLM_MODE", "openai_compatible")
+    monkeypatch.setenv("LLM_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("LLM_API_KEY", "demo-key")
+    monkeypatch.setenv("LLM_MODEL", "openai/gpt-4.1-mini")
+    return build_settings(root_dir=client.app.state.settings.root_dir, database_url=client.app.state.settings.database_url)
+
+
 def test_runtime_bootstrap_defaults_to_safe_local_state(client):
     with client.app.state.db.session() as session:
         state = runtime.get_runtime_state(session, client.app.state.settings)
@@ -70,6 +79,26 @@ def test_runtime_bootstrap_defaults_to_safe_local_state(client):
         assert state.llm_backend == "mock"
         assert len(configs) >= 5
         assert all(config.default_run_mode == "dry_run" for config in configs)
+
+
+def test_llm_settings_accept_new_env_aliases(monkeypatch, tmp_path):
+    monkeypatch.setenv("LLM_MODE", "openai_compatible")
+    monkeypatch.setenv("LLM_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("LLM_API_KEY", "demo-key")
+    monkeypatch.setenv("LLM_MODEL", "openai/gpt-4.1-mini")
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "33")
+    monkeypatch.setenv("LLM_MAX_TOKENS", "512")
+    monkeypatch.setenv("LLM_TEMPERATURE", "0.7")
+
+    settings = build_settings(root_dir=tmp_path, database_url=f"sqlite:///{(tmp_path / 'test.db').as_posix()}")
+
+    assert settings.default_llm_backend == "openai_compatible"
+    assert settings.openai_compatible_base_url == "https://example.test/v1"
+    assert settings.openai_compatible_api_key == "demo-key"
+    assert settings.openai_compatible_model == "openai/gpt-4.1-mini"
+    assert settings.llm_request_timeout_seconds == 33
+    assert settings.llm_max_tokens == 512
+    assert settings.llm_temperature == 0.7
 
 
 def test_output_shaping_removes_ai_and_customer_service_language():
@@ -101,6 +130,29 @@ def test_agent_voice_distinction_and_topic_tone_affect_mock_output():
     assert "ranking signal" in vector.body.lower()
 
 
+def test_real_llm_failure_gracefully_falls_back_to_mock(client, monkeypatch):
+    monkeypatch.setattr(llm.litellm, "completion", lambda **kwargs: (_ for _ in ()).throw(TimeoutError("timed out")))
+    real_settings = build_real_llm_settings(client, monkeypatch)
+
+    with client.app.state.db.session() as session:
+        configure_behavior(session, "cinder", behavior_mode="reply_first", default_run_mode="dry_run", topic_focus="fallback behavior")
+        runtime.update_runtime_state(
+            session,
+            real_settings,
+            scheduler_enabled=False,
+            emergency_stop=False,
+            llm_backend="openai_compatible",
+            scheduler_interval_seconds=30,
+        )
+        outcome = runtime.run_agent_cycle(session, real_settings, "cinder", run_mode="dry_run", triggered_by="manual")
+        details = json.loads(outcome.log.details_json)
+
+        assert outcome.log.status == "drafted"
+        assert details["backend_used"] == "mock"
+        assert details["llm_error_category"] == "timeout"
+        assert llm.get_llm_status_snapshot(real_settings, "openai_compatible")["last_error_category"] == "timeout"
+
+
 def test_candidate_ranking_exposes_new_scoring_factors_and_penalties(client):
     with client.app.state.db.session() as session:
         configure_behavior(session, "quartz", behavior_mode="mixed", topic_focus="signal evidence ranking")
@@ -112,15 +164,41 @@ def test_candidate_ranking_exposes_new_scoring_factors_and_penalties(client):
         memory = runtime.get_or_create_runtime_memory(session, forum.get_agent(session, "quartz"))
         memory.recent_participated_post_ids_json = json.dumps([candidate["target_id"]])
         memory.recent_reply_post_ids_json = json.dumps([candidate["target_id"]])
+        own_post = next(post for post in forum.get_agent(session, "quartz").posts)
         session.commit()
 
         report_after = runtime.build_attention_report(session, "quartz")
         penalized = next(item for item in report_after["post_candidates"] if item["target_id"] == candidate["target_id"])
-        self_authored = next(item for item in report_after["post_candidates"] if item["self_authored"])
+        own_candidate = runtime._score_post_candidate(  # noqa: SLF001
+            own_post,
+            {"engaged"},
+            forum.get_agent(session, "quartz"),
+            runtime.get_or_create_behavior_config(session, forum.get_agent(session, "quartz")),
+            runtime.summarize_memory(memory),
+            runtime.get_or_create_behavior_config(session, forum.get_agent(session, "quartz")).preferred_community,
+        )
 
         assert penalized["score_factors"]["already_seen_penalty"] < 0
         assert penalized["score_factors"]["recent_interaction_penalty"] < 0
-        assert self_authored["score_factors"]["self_authored_exclusion"] < 0
+        assert own_candidate["score_factors"]["self_authored_exclusion"] < 0
+
+
+def test_reply_first_prioritizes_followed_threads_and_watchlist(client):
+    with client.app.state.db.session() as session:
+        configure_behavior(session, "cinder", behavior_mode="reply_first", default_run_mode="dry_run", topic_focus="中文首页")
+        target_post = next(post for post in forum.list_posts(session) if post.title.startswith("中文首页到底应该先解释产品"))
+        memory = runtime.get_or_create_runtime_memory(session, forum.get_agent(session, "cinder"))
+        memory.recent_participated_post_ids_json = json.dumps([target_post.id])
+        session.commit()
+
+        report = runtime.build_attention_report(session, "cinder")
+        outcome = runtime.run_agent_cycle(session, client.app.state.settings, "cinder", run_mode="dry_run", triggered_by="manual")
+
+        assert report["watchlist_threads"]
+        assert report["reply_first_target"] is not None
+        assert outcome.draft is not None
+        assert outcome.draft.action_type == "comment"
+        assert outcome.draft.target_post_id == report["reply_first_target"]["target_id"]
 
 
 def test_guardrails_still_block_self_like_duplicate_interaction_and_repeated_reply(client):
@@ -181,6 +259,7 @@ def test_smoke_run_aggregate_summary_generation(client):
     assert len(report["rounds"]) == 2
     assert "average_output_length" in report["totals"]
     assert "target_community_distribution" in report["totals"]
+    assert "failure_reason_counts" in report["totals"]
     assert set(report["rounds"][0]["agents"].keys()) == {"cinder", "vector", "quartz"}
 
 
@@ -237,6 +316,32 @@ def test_smoke_run_live_creates_logs_and_action_summaries(client):
     assert cinder_memory["recent_action_summaries"]
 
 
+def test_smoke_run_collects_failure_reason_stats_when_llm_backend_degrades(client, monkeypatch):
+    monkeypatch.setattr(llm.litellm, "completion", lambda **kwargs: (_ for _ in ()).throw(TimeoutError("timed out")))
+    real_settings = build_real_llm_settings(client, monkeypatch)
+    with client.app.state.db.session() as session:
+        for slug in ("cinder", "vector", "quartz"):
+            configure_behavior(session, slug, behavior_mode="reply_first", default_run_mode="dry_run", topic_focus=f"{slug} llm failure smoke")
+        runtime.update_runtime_state(
+            session,
+            real_settings,
+            scheduler_enabled=False,
+            emergency_stop=False,
+            llm_backend="openai_compatible",
+            scheduler_interval_seconds=30,
+        )
+
+    report = runtime.run_smoke_run(
+        real_settings,
+        client.app.state.db,
+        agent_slugs=["cinder", "vector", "quartz"],
+        rounds=1,
+        run_mode="dry_run",
+    )
+
+    assert report["totals"]["failure_reason_counts"]["timeout"] >= 1
+
+
 def test_admin_runtime_page_can_render_smoke_report(client):
     with client.app.state.db.session() as session:
         for slug in ("cinder", "vector", "quartz"):
@@ -245,6 +350,7 @@ def test_admin_runtime_page_can_render_smoke_report(client):
     default_page = client.get("/admin/runtime")
     assert default_page.status_code == 200
     assert "注意力与互动控制台" in default_page.text
+    assert "LLM status" in default_page.text
 
     english_page = client.get("/admin/runtime?locale=en")
     assert english_page.status_code == 200

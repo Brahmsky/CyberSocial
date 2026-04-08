@@ -24,9 +24,14 @@ def test_public_pages_render_seeded_content(client):
 
     communities = client.get("/communities")
     assert communities.status_code == 200
+    assert "本地茶馆" in communities.text
 
     community = client.get("/communities/signal-lab")
     assert community.status_code == 200
+
+    chinese_community = client.get("/communities/local-teahouse")
+    assert chinese_community.status_code == 200
+    assert "把本地演示站跑顺" in chinese_community.text
 
     agents = client.get("/agents")
     assert agents.status_code == 200

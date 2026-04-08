@@ -28,12 +28,25 @@ from app.models import (
 from app.services import forum, llm
 
 
-BEHAVIOR_MODES = {"observe", "reply", "post", "mixed"}
+BEHAVIOR_MODES = {"observe", "reply", "post", "mixed", "reply_first", "reply_only", "post_and_reply_limited"}
 RUN_MODES = {"dry_run", "live"}
 ACTION_TYPES = {"skip", "post", "comment", "like_post", "like_comment"}
 LOG_STATUSES = {"approved", "drafted", "executed", "failed", "rejected", "skipped"}
 LLM_BACKENDS = llm.SUPPORTED_BACKENDS
 TIMELINE_LIMIT = 36
+
+_SMOKE_RUN_LOCK = Lock()
+_SMOKE_RUN_STATE: dict[str, Any] = {
+    "running": False,
+    "abort_requested": False,
+    "current_round": 0,
+    "current_agent_slug": None,
+    "run_mode": None,
+    "community_scope_slug": None,
+    "last_report": None,
+    "last_started_at": None,
+    "last_finished_at": None,
+}
 
 
 @dataclass(frozen=True)
@@ -195,7 +208,7 @@ def get_or_create_behavior_config(session: Session, agent: Agent) -> AgentBehavi
         is_enabled=False,
         allow_auto_schedule=False,
         require_approval=False,
-        behavior_mode="mixed",
+        behavior_mode="reply_first",
         default_run_mode="dry_run",
         persona_prompt=agent.capability_summary or agent.bio,
         tone="measured",
@@ -373,6 +386,65 @@ def build_guardrail_stats(logs: list[RuntimeLog]) -> list[tuple[str, int]]:
     return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
 
 
+def build_failure_stats(logs: list[RuntimeLog]) -> list[tuple[str, int]]:
+    counts: dict[str, int] = {}
+    for log in logs:
+        details = _load_json_object(log.details_json)
+        category = str(details.get("llm_error_category") or details.get("failure_category") or "").strip()
+        if category:
+            counts[category] = counts.get(category, 0) + 1
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+
+
+def build_agent_autonomy_summaries(session: Session) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for config in list_behavior_configs(session):
+        memory = get_or_create_runtime_memory(session, config.agent)
+        memory_state = summarize_memory(memory)
+        summaries.append(
+            {
+                "agent": config.agent,
+                "config": config,
+                "recent_action": memory_state["recent_action_summaries"][0] if memory_state["recent_action_summaries"] else None,
+                "watch_count": len(memory_state["recent_participated_post_ids"]),
+                "followed_agents": _recent_followed_agent_slugs(memory_state),
+                "recent_guardrail": memory_state["recent_guardrail_reasons"][0] if memory_state["recent_guardrail_reasons"] else None,
+            }
+        )
+    return summaries
+
+
+def build_followed_threads_snapshot(session: Session, *, limit: int = 12) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for agent in list_agents_for_runtime(session):
+        config = get_or_create_behavior_config(session, agent)
+        memory_state = summarize_memory(get_or_create_runtime_memory(session, agent))
+        for entry in _build_watchlist_entries(session, agent, config, memory_state)[:3]:
+            rows.append(
+                {
+                    "agent": agent,
+                    "post": forum.get_post(session, entry["post_id"]),
+                    "reason": entry["reason"],
+                    "score": entry["score"],
+                }
+            )
+    rows = [row for row in rows if row["post"] is not None]
+    rows.sort(key=lambda row: (row["score"], row["post"].created_at), reverse=True)
+    return rows[:limit]
+
+
+def get_smoke_run_status() -> dict[str, Any]:
+    with _SMOKE_RUN_LOCK:
+        return dict(_SMOKE_RUN_STATE)
+
+
+def request_smoke_run_abort() -> dict[str, Any]:
+    with _SMOKE_RUN_LOCK:
+        if _SMOKE_RUN_STATE["running"]:
+            _SMOKE_RUN_STATE["abort_requested"] = True
+        return dict(_SMOKE_RUN_STATE)
+
+
 def build_draft_entries(session: Session, drafts: list[RuntimeDraft]) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for draft in drafts:
@@ -407,8 +479,22 @@ def run_smoke_run(
         with database.session() as session:
             if forum.get_community(session, community_scope_slug) is None:
                 raise ValueError("Smoke run community scope was not found.")
+    _start_smoke_run(agent_slugs=unique_agents, run_mode=run_mode, community_scope_slug=community_scope_slug)
     if run_mode == "dry_run":
-        return _run_smoke_run_on_cloned_database(
+        try:
+            report = _run_smoke_run_on_cloned_database(
+                settings,
+                database,
+                agent_slugs=unique_agents,
+                rounds=rounds,
+                run_mode=run_mode,
+                community_scope_slug=community_scope_slug,
+            )
+        finally:
+            _finish_smoke_run()
+        return report
+    try:
+        report = _run_smoke_run_on_database(
             settings,
             database,
             agent_slugs=unique_agents,
@@ -416,14 +502,9 @@ def run_smoke_run(
             run_mode=run_mode,
             community_scope_slug=community_scope_slug,
         )
-    return _run_smoke_run_on_database(
-        settings,
-        database,
-        agent_slugs=unique_agents,
-        rounds=rounds,
-        run_mode=run_mode,
-        community_scope_slug=community_scope_slug,
-    )
+    finally:
+        _finish_smoke_run()
+    return report
 
 
 def _run_smoke_run_on_database(
@@ -444,10 +525,12 @@ def _run_smoke_run_on_database(
         "totals": {
             "action_counts": {action: 0 for action in ACTION_TYPES},
             "guardrail_counts": {},
+            "failure_reason_counts": {},
             "average_output_length": 0.0,
             "repetitive_content_hits": 0,
             "target_community_distribution": {},
         },
+        "aborted": False,
     }
     all_output_lengths: list[int] = []
 
@@ -456,6 +539,7 @@ def _run_smoke_run_on_database(
             "round": round_index,
             "agents": {},
             "guardrail_counts": {},
+            "failure_reason_counts": {},
             "average_output_length": 0.0,
             "repetitive_content_hits": 0,
             "target_community_distribution": {},
@@ -463,7 +547,14 @@ def _run_smoke_run_on_database(
         round_lengths: list[int] = []
         with database.session() as session:
             ensure_runtime_bootstrap(session, settings)
+            if _smoke_run_should_abort():
+                report["aborted"] = True
+                break
             for slug in agent_slugs:
+                _mark_smoke_run_progress(round_index, slug)
+                if _smoke_run_should_abort():
+                    report["aborted"] = True
+                    break
                 outcome = run_agent_cycle(
                     session,
                     settings,
@@ -480,6 +571,9 @@ def _run_smoke_run_on_database(
                 if agent_summary["guardrail_reason"]:
                     _increment_counter(round_summary["guardrail_counts"], agent_summary["guardrail_reason"])
                     _increment_counter(report["totals"]["guardrail_counts"], agent_summary["guardrail_reason"])
+                if agent_summary["failure_reason"]:
+                    _increment_counter(round_summary["failure_reason_counts"], agent_summary["failure_reason"])
+                    _increment_counter(report["totals"]["failure_reason_counts"], agent_summary["failure_reason"])
                 if agent_summary["repetitive_content_hit"]:
                     round_summary["repetitive_content_hits"] += 1
                     report["totals"]["repetitive_content_hits"] += 1
@@ -488,8 +582,11 @@ def _run_smoke_run_on_database(
                     _increment_counter(report["totals"]["target_community_distribution"], agent_summary["community_slug"])
         round_summary["average_output_length"] = round(sum(round_lengths) / len(round_lengths), 2) if round_lengths else 0.0
         report["rounds"].append(round_summary)
+        if report["aborted"]:
+            break
 
     report["totals"]["average_output_length"] = round(sum(all_output_lengths) / len(all_output_lengths), 2) if all_output_lengths else 0.0
+    _store_smoke_run_report(report)
     return report
 
 
@@ -604,10 +701,14 @@ def run_agent_cycle(
                 memory=memory,
                 run_mode=effective_run_mode,
                 message=str(exc),
+                failure_category=exc.category,
             )
         backend_used = "mock"
         adapter_warning = str(exc)
+        adapter_warning_category = exc.category
         decision = llm.decide_action(settings, "mock", context)
+    else:
+        adapter_warning_category = None
 
     decision = _hydrate_decision_targets(decision, attention_report, config)
     guardrail_issue = _guardrail_issue(session, agent, config, memory_state, decision)
@@ -619,13 +720,25 @@ def run_agent_cycle(
         "decision_summary": _build_decision_summary(session, decision),
         "memory_summary": summarize_memory(memory),
         "community_scope_slug": community_scope_slug,
+        "llm_mode": state.llm_backend,
     }
     if adapter_warning:
         details["adapter_warning"] = adapter_warning
+    if adapter_warning_category:
+        details["llm_error_category"] = adapter_warning_category
 
     if guardrail_issue:
         _remember_guardrail(memory, guardrail_issue)
-        _remember_action(memory, action_type="skip", status="skipped", summary=guardrail_issue)
+        _remember_action(
+            memory,
+            action_type="skip",
+            status="skipped",
+            summary=guardrail_issue,
+            target_post_id=decision.target_post_id,
+            target_comment_id=decision.target_comment_id,
+            target_agent_slug=_decision_target_agent_slug(session, decision),
+        )
+        _remember_candidate_state(memory, decision, disposition="ignored")
         details["guardrail_reason"] = guardrail_issue
         return _finalize_skipped_outcome(
             session,
@@ -638,7 +751,16 @@ def run_agent_cycle(
         )
 
     if decision.action_type == "skip":
-        _remember_action(memory, action_type="skip", status="skipped", summary=decision.rationale)
+        _remember_action(
+            memory,
+            action_type="skip",
+            status="skipped",
+            summary=decision.rationale,
+            target_post_id=decision.target_post_id,
+            target_comment_id=decision.target_comment_id,
+            target_agent_slug=_decision_target_agent_slug(session, decision),
+        )
+        _remember_candidate_state(memory, decision, disposition="ignored")
         return _finalize_skipped_outcome(
             session,
             agent=agent,
@@ -659,6 +781,7 @@ def run_agent_cycle(
             status="dry_run",
         )
         _remember_action(memory, action_type=decision.action_type, status="drafted", summary=decision.rationale)
+        _remember_candidate_state(memory, decision, disposition="seen")
         log = _create_runtime_log(
             session,
             agent=agent,
@@ -682,6 +805,7 @@ def run_agent_cycle(
             status="pending",
         )
         _remember_action(memory, action_type=decision.action_type, status="drafted", summary=decision.rationale)
+        _remember_candidate_state(memory, decision, disposition="seen")
         log = _create_runtime_log(
             session,
             agent=agent,
@@ -829,6 +953,7 @@ def _build_attention_report(
     scoped_community = forum.get_community(session, community_scope_slug) if community_scope_slug else None
     preferred_community = scoped_community or config.preferred_community
     all_posts = forum.list_posts(session, community_slug=scoped_community.slug) if scoped_community else forum.list_posts(session)
+    watchlist_entries = _build_watchlist_entries(session, agent, config, memory_state, scoped_community=preferred_community)
     recent_posts = forum.sort_posts(list(all_posts), sort="new")[:8]
     hot_posts = forum.sort_posts(list(all_posts), sort="hot")[:8]
     preferred_posts = (
@@ -851,10 +976,20 @@ def _build_attention_report(
     ):
         for post in posts:
             source_map.setdefault(post.id, set()).add(label)
+    for entry in watchlist_entries:
+        source_map.setdefault(entry["post_id"], set()).add("watchlist")
 
     post_lookup = {post.id: post for post in all_posts}
     post_candidates = [
-        _score_post_candidate(post_lookup[post_id], source_tags, agent, config, memory_state, preferred_community)
+        _score_post_candidate(
+            post_lookup[post_id],
+            source_tags,
+            agent,
+            config,
+            memory_state,
+            preferred_community,
+            watchlist_entry=_watch_entry_for_post(watchlist_entries, post_id),
+        )
         for post_id, source_tags in source_map.items()
         if post_id in post_lookup
     ]
@@ -867,6 +1002,21 @@ def _build_attention_report(
     best_like_post = next((candidate for candidate in post_candidates if _candidate_can_receive_like(candidate)), None)
     best_like_comment = next((candidate for candidate in comment_candidates if _candidate_can_receive_like(candidate)), None)
     should_create_post = _should_create_post(config, memory_state, best_comment_post, best_like_post)
+    watched_post_ids = {entry["post_id"] for entry in watchlist_entries}
+    reply_first_target = (
+        next(
+            (
+                candidate
+                for candidate in post_candidates
+                if candidate["post_id"] in watched_post_ids and _candidate_can_receive_comment(candidate)
+            ),
+            best_comment_post,
+        )
+        if config.behavior_mode in {"reply_first", "reply_only"}
+        else None
+    )
+    recently_replied_by = _recent_replied_by(agent, config.last_run_at)
+    recently_replied_to = _recent_followed_agent_slugs(memory_state)
 
     return {
         "generated_at": datetime.utcnow().isoformat(),
@@ -875,9 +1025,13 @@ def _build_attention_report(
         "best_comment_post": best_comment_post,
         "best_like_post": best_like_post,
         "best_like_comment": best_like_comment,
+        "reply_first_target": reply_first_target,
         "should_create_post": should_create_post,
         "preferred_community_slug": preferred_community.slug if preferred_community else None,
         "community_scope_slug": scoped_community.slug if scoped_community else None,
+        "watchlist_threads": watchlist_entries[:8],
+        "recently_replied_by": recently_replied_by,
+        "recently_replied_to": recently_replied_to,
         "memory_summary": _memory_prompt_summary(memory_state),
     }
 
@@ -889,9 +1043,10 @@ def _score_post_candidate(
     config: AgentBehaviorConfig,
     memory_state: dict[str, Any],
     preferred_community: Community | None,
+    watchlist_entry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     score_factors: dict[str, int] = {}
-    source_weights = {"recent": 4, "hot": 3, "engaged": 4, "preferred": 2}
+    source_weights = {"recent": 4, "hot": 3, "engaged": 4, "preferred": 2, "watchlist": 5}
     score_factors["source_signal"] = sum(source_weights[label] for label in sorted(source_tags))
     score_factors["external_author"] = 2 if post.agent_id != agent.id else 0
     score_factors["self_authored_exclusion"] = -100 if post.agent_id == agent.id else 0
@@ -913,6 +1068,8 @@ def _score_post_candidate(
         score_factors["preferred_community_match"] = 0
 
     score_factors["topic_affinity"] = _topic_affinity_score(post, config, preferred_community)
+    score_factors["watchlist_bonus"] = watchlist_entry["score"] if watchlist_entry else 0
+    score_factors["mention_bonus"] = 3 if watchlist_entry and watchlist_entry["reason"] == "mentioned" else 0
 
     if post.id in memory_state["recent_reply_post_ids"]:
         score_factors["recent_interaction_penalty"] = -6
@@ -951,6 +1108,7 @@ def _score_post_candidate(
         "recently_replied": post.id in memory_state["recent_reply_post_ids"],
         "recently_liked": _was_recently_liked(memory_state, f"post:{post.id}"),
         "seen_recently": post.id in memory_state["recent_participated_post_ids"],
+        "watch_reason": watchlist_entry["reason"] if watchlist_entry else None,
     }
 
 
@@ -1000,6 +1158,58 @@ def _build_comment_candidates(
     return candidates
 
 
+def _build_watchlist_entries(
+    session: Session,
+    agent: Agent,
+    config: AgentBehaviorConfig,
+    memory_state: dict[str, Any],
+    *,
+    scoped_community: Community | None = None,
+) -> list[dict[str, Any]]:
+    posts = forum.list_posts(session, community_slug=scoped_community.slug) if scoped_community else forum.list_posts(session)
+    post_lookup = {post.id: post for post in posts}
+    watched_ids = set(memory_state["recent_participated_post_ids"])
+    watched_ids.update(memory_state["recent_reply_post_ids"])
+    watched_ids.update(post.id for post in agent.posts[:6])
+    watched_ids.update(comment.post_id for comment in agent.comments[:8] if comment.post_id)
+    entries: list[dict[str, Any]] = []
+    for post_id in watched_ids:
+        post = post_lookup.get(post_id)
+        if not post:
+            continue
+        reason = "watchlist"
+        score = 2
+        if _post_has_recent_external_reply(post, agent.id, config.last_run_at):
+            reason = "recent_reply"
+            score = 5
+        if _post_mentions_agent(post, agent):
+            reason = "mentioned"
+            score = 6
+        if scoped_community and post.community_id != scoped_community.id:
+            continue
+        if _was_recently_ignored(memory_state, f"post:{post.id}"):
+            score -= 3
+        entries.append({"post_id": post.id, "reason": reason, "score": score})
+    entries.sort(key=lambda entry: (entry["score"], entry["post_id"]), reverse=True)
+    return entries
+
+
+def _watch_entry_for_post(entries: list[dict[str, Any]], post_id: int) -> dict[str, Any] | None:
+    return next((entry for entry in entries if entry["post_id"] == post_id), None)
+
+
+def _post_has_recent_external_reply(post: Post, agent_id: int, last_run_at: datetime | None) -> bool:
+    threshold = last_run_at or (datetime.utcnow() - timedelta(hours=12))
+    return any(comment.agent_id != agent_id and comment.created_at >= threshold for comment in post.comments)
+
+
+def _post_mentions_agent(post: Post, agent: Agent) -> bool:
+    tokens = {f"@{agent.slug.lower()}", agent.slug.lower(), agent.display_name.lower()}
+    comment_text = " ".join(comment.body.lower() for comment in post.comments[:12])
+    haystack = " ".join((post.title.lower(), post.body.lower(), comment_text))
+    return any(token in haystack for token in tokens)
+
+
 def _topic_affinity_score(post: Post, config: AgentBehaviorConfig, preferred_community: Community | None) -> int:
     focus_text = " ".join(
         fragment
@@ -1032,7 +1242,9 @@ def _should_create_post(
     best_comment_post: dict[str, Any] | None,
     best_like_post: dict[str, Any] | None,
 ) -> bool:
-    if config.behavior_mode not in {"post", "mixed"}:
+    if config.behavior_mode not in {"post", "mixed", "reply_first", "post_and_reply_limited"}:
+        return False
+    if config.behavior_mode == "reply_first" and best_comment_post is not None:
         return False
     if any(entry.get("action_type") == "post" for entry in memory_state["recent_action_summaries"][:2]):
         return False
@@ -1041,6 +1253,25 @@ def _should_create_post(
     if best_like_post and best_like_post["score"] >= 9:
         return False
     return True
+
+
+def _recent_replied_by(agent: Agent, last_run_at: datetime | None) -> list[str]:
+    threshold = last_run_at or (datetime.utcnow() - timedelta(hours=12))
+    seen: list[str] = []
+    for post in agent.posts[:8]:
+        for comment in post.comments:
+            if comment.agent_id != agent.id and comment.created_at >= threshold and comment.agent.slug not in seen:
+                seen.append(comment.agent.slug)
+    return seen[:6]
+
+
+def _recent_followed_agent_slugs(memory_state: dict[str, Any]) -> list[str]:
+    seen: list[str] = []
+    for entry in memory_state["recent_action_summaries"]:
+        target_agent = entry.get("target_agent_slug") if isinstance(entry, dict) else None
+        if target_agent and target_agent not in seen:
+            seen.append(target_agent)
+    return seen[:6]
 
 
 def _hydrate_decision_targets(
@@ -1311,23 +1542,45 @@ def _remember_success(
     created_comment: Comment | None,
 ) -> None:
     summary = decision.rationale or f"{decision.action_type} executed."
-    _remember_action(memory, action_type=decision.action_type, status="executed", summary=summary)
+    target_agent_slug = None
     if decision.action_type == "post" and created_post is not None:
+        target_agent_slug = created_post.agent.slug
         _remember_participated_post(memory, created_post.id)
         _remember_fingerprint(memory, f"{created_post.title} {created_post.body}")
     elif decision.action_type == "comment" and created_comment is not None:
+        target_agent_slug = created_comment.post.agent.slug if created_comment.post else None
         _remember_participated_post(memory, created_comment.post_id)
         _remember_reply_post(memory, created_comment.post_id)
         _remember_fingerprint(memory, created_comment.body)
     elif decision.action_type == "like_post" and created_post is not None:
+        target_agent_slug = created_post.agent.slug
         _remember_participated_post(memory, created_post.id)
-        _remember_like_target(memory, f"post:{created_post.id}")
+        _remember_like_target(memory, f"post:{created_post.id}", disposition="liked")
     elif decision.action_type == "like_comment" and created_comment is not None:
+        target_agent_slug = created_comment.agent.slug
         _remember_participated_post(memory, created_comment.post_id)
-        _remember_like_target(memory, f"comment:{created_comment.id}")
+        _remember_like_target(memory, f"comment:{created_comment.id}", disposition="liked")
+    _remember_action(
+        memory,
+        action_type=decision.action_type,
+        status="executed",
+        summary=summary,
+        target_post_id=decision.target_post_id,
+        target_comment_id=decision.target_comment_id,
+        target_agent_slug=target_agent_slug,
+    )
 
 
-def _remember_action(memory: AgentRuntimeMemory, *, action_type: str, status: str, summary: str) -> None:
+def _remember_action(
+    memory: AgentRuntimeMemory,
+    *,
+    action_type: str,
+    status: str,
+    summary: str,
+    target_post_id: int | None = None,
+    target_comment_id: int | None = None,
+    target_agent_slug: str | None = None,
+) -> None:
     entries = _load_json_list(memory.recent_action_summaries_json)
     entries.insert(
         0,
@@ -1336,6 +1589,9 @@ def _remember_action(memory: AgentRuntimeMemory, *, action_type: str, status: st
             "action_type": action_type,
             "status": status,
             "summary": summary[:180],
+            "target_post_id": target_post_id,
+            "target_comment_id": target_comment_id,
+            "target_agent_slug": target_agent_slug,
         },
     )
     memory.recent_action_summaries_json = _dump_json(entries[:8])
@@ -1357,11 +1613,21 @@ def _remember_reply_post(memory: AgentRuntimeMemory, post_id: int) -> None:
     memory.recent_reply_post_ids_json = _dump_json(_prepend_unique(post_ids, post_id, limit=8))
 
 
-def _remember_like_target(memory: AgentRuntimeMemory, target_key: str) -> None:
+def _remember_like_target(memory: AgentRuntimeMemory, target_key: str, *, disposition: str) -> None:
     entries = [value for value in _load_json_list(memory.recent_like_targets_json) if isinstance(value, dict)]
-    entries = [entry for entry in entries if entry.get("target") != target_key]
-    entries.insert(0, {"target": target_key, "at": datetime.utcnow().isoformat()})
+    entries = [entry for entry in entries if not (entry.get("target") == target_key and entry.get("disposition") == disposition)]
+    entries.insert(0, {"target": target_key, "disposition": disposition, "at": datetime.utcnow().isoformat()})
     memory.recent_like_targets_json = _dump_json(entries[:10])
+
+
+def _remember_candidate_state(memory: AgentRuntimeMemory, decision: llm.RuntimeDecision, *, disposition: str) -> None:
+    target_key = None
+    if decision.target_comment_id:
+        target_key = f"comment:{decision.target_comment_id}"
+    elif decision.target_post_id:
+        target_key = f"post:{decision.target_post_id}"
+    if target_key:
+        _remember_like_target(memory, target_key, disposition=disposition)
 
 
 def _remember_fingerprint(memory: AgentRuntimeMemory, content: str) -> None:
@@ -1373,9 +1639,19 @@ def _remember_fingerprint(memory: AgentRuntimeMemory, content: str) -> None:
 def _was_recently_liked(memory_state: dict[str, Any], target_key: str) -> bool:
     now = datetime.utcnow()
     for entry in memory_state["recent_like_targets"]:
-        if isinstance(entry, dict) and entry.get("target") == target_key:
+        if isinstance(entry, dict) and entry.get("target") == target_key and entry.get("disposition", "liked") == "liked":
             liked_at = _safe_datetime(entry.get("at"))
             if liked_at and now - liked_at <= timedelta(hours=12):
+                return True
+    return False
+
+
+def _was_recently_ignored(memory_state: dict[str, Any], target_key: str) -> bool:
+    now = datetime.utcnow()
+    for entry in memory_state["recent_like_targets"]:
+        if isinstance(entry, dict) and entry.get("target") == target_key and entry.get("disposition") == "ignored":
+            ignored_at = _safe_datetime(entry.get("at"))
+            if ignored_at and now - ignored_at <= timedelta(hours=12):
                 return True
     return False
 
@@ -1438,12 +1714,23 @@ def _target_label(session: Session, action_type: str, post_id: int | None, comme
     return "No target"
 
 
+def _decision_target_agent_slug(session: Session, decision: llm.RuntimeDecision) -> str | None:
+    if decision.target_comment_id:
+        comment = session.get(Comment, decision.target_comment_id)
+        return comment.agent.slug if comment else None
+    if decision.target_post_id:
+        post = forum.get_post(session, decision.target_post_id)
+        return post.agent.slug if post else None
+    return None
+
+
 def _memory_prompt_summary(memory_state: dict[str, Any]) -> dict[str, Any]:
     return {
         "recent_action_summaries": memory_state["recent_action_summaries"][:4],
         "recent_guardrail_reasons": memory_state["recent_guardrail_reasons"][:4],
         "recent_reply_post_ids": memory_state["recent_reply_post_ids"][:6],
         "recent_like_targets": memory_state["recent_like_targets"][:6],
+        "recent_followed_agents": _recent_followed_agent_slugs(memory_state),
     }
 
 
@@ -1452,6 +1739,7 @@ def _build_smoke_agent_summary(session: Session, outcome: RuntimeOutcome) -> dic
     decision = details.get("decision", {})
     output_length = len((decision.get("title") or "").strip()) + len((decision.get("body") or "").strip())
     guardrail_reason = details.get("guardrail_reason")
+    failure_reason = details.get("llm_error_category") or details.get("failure_category")
     community_slug = _decision_community_slug(session, decision)
     return {
         "agent_slug": outcome.agent.slug,
@@ -1459,6 +1747,7 @@ def _build_smoke_agent_summary(session: Session, outcome: RuntimeOutcome) -> dic
         "status": outcome.log.status,
         "counts": {action: 1 if outcome.log.action_type == action else 0 for action in ACTION_TYPES},
         "guardrail_reason": guardrail_reason,
+        "failure_reason": failure_reason,
         "output_length": output_length,
         "repetitive_content_hit": isinstance(guardrail_reason, str) and "Repetitive content guardrail" in guardrail_reason,
         "community_slug": community_slug,
@@ -1484,6 +1773,47 @@ def _decision_community_slug(session: Session, decision: dict[str, Any]) -> str 
 
 def _increment_counter(counter: dict[str, int], key: str) -> None:
     counter[key] = counter.get(key, 0) + 1
+
+
+def _start_smoke_run(*, agent_slugs: list[str], run_mode: str, community_scope_slug: str | None) -> None:
+    with _SMOKE_RUN_LOCK:
+        _SMOKE_RUN_STATE.update(
+            {
+                "running": True,
+                "abort_requested": False,
+                "current_round": 0,
+                "current_agent_slug": None,
+                "agent_slugs": list(agent_slugs),
+                "run_mode": run_mode,
+                "community_scope_slug": community_scope_slug,
+                "last_started_at": datetime.utcnow().isoformat(),
+            }
+        )
+
+
+def _mark_smoke_run_progress(round_index: int, agent_slug: str) -> None:
+    with _SMOKE_RUN_LOCK:
+        _SMOKE_RUN_STATE["current_round"] = round_index
+        _SMOKE_RUN_STATE["current_agent_slug"] = agent_slug
+
+
+def _smoke_run_should_abort() -> bool:
+    with _SMOKE_RUN_LOCK:
+        return bool(_SMOKE_RUN_STATE["abort_requested"])
+
+
+def _store_smoke_run_report(report: dict[str, Any]) -> None:
+    with _SMOKE_RUN_LOCK:
+        _SMOKE_RUN_STATE["last_report"] = report
+
+
+def _finish_smoke_run() -> None:
+    with _SMOKE_RUN_LOCK:
+        _SMOKE_RUN_STATE["running"] = False
+        _SMOKE_RUN_STATE["current_round"] = 0
+        _SMOKE_RUN_STATE["current_agent_slug"] = None
+        _SMOKE_RUN_STATE["abort_requested"] = False
+        _SMOKE_RUN_STATE["last_finished_at"] = datetime.utcnow().isoformat()
 
 
 def _finalize_skipped_outcome(
@@ -1518,6 +1848,7 @@ def _finalize_failed_outcome(
     memory: AgentRuntimeMemory,
     run_mode: str,
     message: str,
+    failure_category: str | None = None,
 ) -> RuntimeOutcome:
     _remember_action(memory, action_type="skip", status="failed", summary=message)
     log = _create_runtime_log(
@@ -1528,7 +1859,7 @@ def _finalize_failed_outcome(
         run_mode=run_mode,
         status="failed",
         message=message,
-        details={"memory_summary": summarize_memory(memory)},
+        details={"memory_summary": summarize_memory(memory), "failure_category": failure_category, "llm_error_category": failure_category},
     )
     session.commit()
     return RuntimeOutcome(agent=agent, config=config, memory=memory, log=log, draft=None, created_post=None, created_comment=None, run_mode=run_mode)

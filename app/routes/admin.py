@@ -57,13 +57,19 @@ def runtime_context(
         limit=36,
     )
     runtime_drafts = runtime.list_runtime_drafts(session, limit=24)
+    smoke_status = runtime.get_smoke_run_status()
     return {
         "runtime_state": runtime_state,
+        "llm_status": runtime.llm.get_llm_status_snapshot(settings, runtime_state.llm_backend),
         "behavior_configs": runtime.list_behavior_configs(session),
+        "agent_autonomy_summaries": runtime.build_agent_autonomy_summaries(session),
+        "followed_threads": runtime.build_followed_threads_snapshot(session),
         "runtime_timeline": runtime.build_runtime_timeline(runtime_logs),
         "runtime_draft_entries": runtime.build_draft_entries(session, runtime_drafts),
         "guardrail_stats": runtime.build_guardrail_stats(runtime_logs),
-        "smoke_report": smoke_report,
+        "failure_stats": runtime.build_failure_stats(runtime_logs),
+        "smoke_report": smoke_report or smoke_status.get("last_report"),
+        "smoke_status": smoke_status,
         "smoke_form": smoke_form or {"agent_slugs": ",".join(agent.slug for agent in agents[:3]), "rounds": 3, "run_mode": "dry_run", "community_scope_slug": ""},
         "runtime_filter_state": {
             "agent": agent_filter,
@@ -347,6 +353,20 @@ def admin_runtime_smoke_run(
                 count=len(resolved_agent_slugs),
                 rounds=rounds,
             ),
+        ),
+    )
+
+
+@router.post("/runtime/smoke-run/abort")
+def admin_runtime_smoke_run_abort(request: Request, session: Session = Depends(get_session)):
+    runtime.request_smoke_run_abort()
+    return render_template(
+        request,
+        "admin_runtime.html",
+        runtime_context(
+            session,
+            settings=request.app.state.settings,
+            status_message="Smoke run abort requested.",
         ),
     )
 

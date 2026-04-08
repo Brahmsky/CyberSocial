@@ -1,16 +1,32 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import json
 import re
+from threading import Lock
 from typing import Any
-from urllib import error, request
 
 from app.config import Settings
+
+try:
+    import litellm
+except ImportError:  # pragma: no cover - exercised via runtime fallback path
+    litellm = None
 
 
 SUPPORTED_BACKENDS = {"mock", "openai_compatible"}
 SUPPORTED_ACTIONS = {"skip", "post", "comment", "like_post", "like_comment"}
+LLM_ERROR_CATEGORIES = {
+    "auth_failure",
+    "timeout",
+    "empty_response",
+    "malformed_response",
+    "rate_limit",
+    "server_error",
+    "network_error",
+    "not_configured",
+}
 STYLE_TRACKS = ("opinion", "supplement", "question", "technical_note")
 FORBIDDEN_TEXT_PATTERNS = (
     re.compile(r"\b(as an ai|as an assistant|i am an ai|from an ai perspective)\b[:,， ]*", re.IGNORECASE),
@@ -68,7 +84,11 @@ TONE_MARKERS = {
 
 
 class RuntimeLLMError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, category: str, status_code: int | None = None, retryable: bool = False):
+        super().__init__(message)
+        self.category = category
+        self.status_code = status_code
+        self.retryable = retryable
 
 
 @dataclass(frozen=True)
@@ -111,10 +131,25 @@ class RuntimeDecision:
         }
 
 
+_LLM_STATUS_LOCK = Lock()
+_LLM_STATUS: dict[str, Any] = {
+    "last_backend": "mock",
+    "mode": "mock",
+    "model": "",
+    "configured": True,
+    "connectivity": "ready",
+    "last_error_category": None,
+    "last_error_message": None,
+    "last_success_at": None,
+    "last_checked_at": None,
+}
+
+
 def decide_action(settings: Settings, backend: str, context: RuntimeContext) -> RuntimeDecision:
     backend_name = backend if backend in SUPPORTED_BACKENDS else "mock"
     if backend_name == "mock":
         decision = mock_decide(context)
+        _record_llm_success(backend_name, settings)
     else:
         decision = openai_compatible_decide(settings, context)
     return enforce_forum_style(decision, context)
@@ -126,6 +161,7 @@ def mock_decide(context: RuntimeContext) -> RuntimeDecision:
     best_like_post = attention.get("best_like_post")
     best_like_comment = attention.get("best_like_comment")
     should_create_post = bool(attention.get("should_create_post"))
+    follow_thread = attention.get("reply_first_target")
     if context.behavior_mode == "observe":
         return RuntimeDecision(
             action_type="skip",
@@ -143,7 +179,28 @@ def mock_decide(context: RuntimeContext) -> RuntimeDecision:
             raw={"backend": "mock", "style": _pick_style_track(context), "voice": _voice_profile(context)["anchor"]},
         )
 
-    if best_comment and best_comment.get("score", 0) >= (10 if context.behavior_mode == "mixed" else 8):
+    if context.behavior_mode == "reply_only" and follow_thread:
+        return RuntimeDecision(
+            action_type="comment",
+            rationale=f"Reply-only mode is following a watched thread ({follow_thread['score']}).",
+            body=_build_comment_body(context, follow_thread),
+            target_post_id=follow_thread["target_id"],
+            community_slug=follow_thread.get("community_slug"),
+            raw={"backend": "mock", "style": _pick_style_track(context), "voice": _voice_profile(context)["anchor"]},
+        )
+
+    if context.behavior_mode in {"reply_first", "reply_only"} and follow_thread:
+        return RuntimeDecision(
+            action_type="comment",
+            rationale=f"Reply-first mode is following a watched thread ({follow_thread['score']}).",
+            body=_build_comment_body(context, follow_thread),
+            target_post_id=follow_thread["target_id"],
+            community_slug=follow_thread.get("community_slug"),
+            raw={"backend": "mock", "style": _pick_style_track(context), "voice": _voice_profile(context)["anchor"]},
+        )
+
+    comment_threshold = 10 if context.behavior_mode in {"mixed", "post_and_reply_limited"} else 8
+    if best_comment and best_comment.get("score", 0) >= comment_threshold:
         return RuntimeDecision(
             action_type="comment",
             rationale=f"Comment target scored highest in attention ({best_comment['score']}).",
@@ -170,7 +227,7 @@ def mock_decide(context: RuntimeContext) -> RuntimeDecision:
             raw={"backend": "mock", "style": _pick_style_track(context), "voice": _voice_profile(context)["anchor"]},
         )
 
-    if context.behavior_mode == "mixed" and should_create_post:
+    if context.behavior_mode in {"mixed", "post_and_reply_limited", "reply_first"} and should_create_post:
         return RuntimeDecision(
             action_type="post",
             rationale="No interaction target crossed the engagement threshold, so the runtime opens a tighter new thread instead.",
@@ -188,20 +245,25 @@ def mock_decide(context: RuntimeContext) -> RuntimeDecision:
 
 
 def openai_compatible_decide(settings: Settings, context: RuntimeContext) -> RuntimeDecision:
+    if litellm is None:
+        exc = RuntimeLLMError("LiteLLM is not installed.", category="not_configured")
+        _record_llm_failure("openai_compatible", settings, exc)
+        raise exc
     if not settings.openai_compatible_base_url or not settings.openai_compatible_api_key or not settings.openai_compatible_model:
-        raise RuntimeLLMError("OpenAI-compatible backend is not configured.")
+        exc = RuntimeLLMError("OpenAI-compatible backend is not configured.", category="not_configured")
+        _record_llm_failure("openai_compatible", settings, exc)
+        raise exc
 
     voice = _voice_profile(context)
     prompt = (
         "Choose exactly one bounded forum action and return strict JSON.\n"
         "Allowed action_type values: skip, post, comment, like_post, like_comment.\n"
-        "Forum style rules:\n"
-        "- comments should read like short forum replies, usually one or two sentences\n"
-        "- posts should read like compact technical notes, observations, or opinions\n"
-        "- do not use 'as an AI', customer-support phrasing, greetings, or summary boilerplate\n"
-        "- do not repeat self-explanations or restate your role\n"
-        "- let tone, topic focus, preferred community, and agent voice materially affect wording\n"
+        "Behavior priorities:\n"
+        "- reply_first / reply_only should prefer thread follow-up over new posts\n"
+        "- keep forum replies concise and specific\n"
+        "- avoid customer-support framing and 'as an AI' phrasing\n"
         f"Agent: {context.display_name} ({context.agent_slug})\n"
+        f"Behavior mode: {context.behavior_mode}\n"
         f"Voice anchor: {voice['anchor']}\n"
         f"Tone: {context.tone}\n"
         f"Topic focus: {context.topic_focus}\n"
@@ -210,40 +272,47 @@ def openai_compatible_decide(settings: Settings, context: RuntimeContext) -> Run
         f"Memory summary: {json.dumps(context.memory_summary, ensure_ascii=False)}\n"
         "Return JSON keys: action_type, rationale, title, body, community_slug, target_post_id, target_comment_id."
     )
-    body = {
-        "model": settings.openai_compatible_model,
-        "messages": [
-            {"role": "system", "content": "Return strict JSON only. Write like a forum participant, not a support bot."},
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0.25,
-        "response_format": {"type": "json_object"},
-    }
-    req = request.Request(
-        url=f"{settings.openai_compatible_base_url.rstrip('/')}/chat/completions",
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {settings.openai_compatible_api_key}",
-        },
-        method="POST",
-    )
     try:
-        with request.urlopen(req, timeout=20) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except error.URLError as exc:
-        raise RuntimeLLMError(f"OpenAI-compatible request failed: {exc}") from exc
-
-    try:
-        content = payload["choices"][0]["message"]["content"]
+        response = litellm.completion(
+            model=settings.openai_compatible_model,
+            base_url=settings.openai_compatible_base_url,
+            api_key=settings.openai_compatible_api_key,
+            timeout=settings.llm_request_timeout_seconds,
+            temperature=settings.llm_temperature,
+            max_tokens=settings.llm_max_tokens,
+            num_retries=2,
+            messages=[
+                {"role": "system", "content": "Return strict JSON only. Write like a forum participant, not a support bot."},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content
+        if not str(content).strip():
+            raise RuntimeLLMError("OpenAI-compatible response content was empty.", category="empty_response", retryable=True)
         parsed = json.loads(content)
-    except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-        raise RuntimeLLMError("OpenAI-compatible response was not valid JSON.") from exc
+    except RuntimeLLMError as exc:
+        _record_llm_failure("openai_compatible", settings, exc)
+        raise
+    except Exception as exc:
+        runtime_error = _classify_litellm_error(exc)
+        _record_llm_failure("openai_compatible", settings, runtime_error)
+        raise runtime_error from exc
+    try:
+        if not isinstance(parsed, dict):
+            raise RuntimeLLMError("OpenAI-compatible response was malformed.", category="malformed_response", retryable=True)
+    except RuntimeLLMError as exc:
+        _record_llm_failure("openai_compatible", settings, exc)
+        raise
+    except (TypeError, json.JSONDecodeError) as exc:
+        runtime_error = RuntimeLLMError("OpenAI-compatible response was malformed.", category="malformed_response", retryable=True)
+        _record_llm_failure("openai_compatible", settings, runtime_error)
+        raise runtime_error from exc
 
     action_type = parsed.get("action_type", "skip")
     if action_type not in SUPPORTED_ACTIONS:
         action_type = "skip"
-    return RuntimeDecision(
+    decision = RuntimeDecision(
         action_type=action_type,
         rationale=str(parsed.get("rationale", "")).strip() or "Model returned no rationale.",
         title=str(parsed.get("title", "")).strip(),
@@ -253,6 +322,36 @@ def openai_compatible_decide(settings: Settings, context: RuntimeContext) -> Run
         target_comment_id=_safe_int(parsed.get("target_comment_id")),
         raw=parsed,
     )
+    _record_llm_success("openai_compatible", settings)
+    return decision
+
+
+def get_llm_status_snapshot(settings: Settings, backend: str | None = None) -> dict[str, Any]:
+    mode = backend if backend in SUPPORTED_BACKENDS else settings.default_llm_backend
+    configured = mode == "mock" or all(
+        (
+            settings.openai_compatible_base_url,
+            settings.openai_compatible_api_key,
+            settings.openai_compatible_model,
+        )
+    )
+    with _LLM_STATUS_LOCK:
+        snapshot = dict(_LLM_STATUS)
+    connectivity = snapshot["connectivity"]
+    if mode == "mock":
+        connectivity = "ready"
+    elif not configured and connectivity == "ready":
+        connectivity = "misconfigured"
+    return {
+        "mode": mode,
+        "model": settings.openai_compatible_model if mode == "openai_compatible" else "mock",
+        "configured": configured,
+        "connectivity": connectivity,
+        "last_success_at": snapshot["last_success_at"],
+        "last_checked_at": snapshot["last_checked_at"],
+        "last_error_category": snapshot["last_error_category"],
+        "last_error_message": snapshot["last_error_message"],
+    }
 
 
 def enforce_forum_style(decision: RuntimeDecision, context: RuntimeContext) -> RuntimeDecision:
@@ -293,6 +392,70 @@ def enforce_forum_style(decision: RuntimeDecision, context: RuntimeContext) -> R
         target_comment_id=decision.target_comment_id,
         raw=decision.raw,
     )
+
+
+def _classify_litellm_error(exc: Exception) -> RuntimeLLMError:
+    if litellm is None:
+        return RuntimeLLMError("LiteLLM is not installed.", category="not_configured")
+    if isinstance(exc, litellm.AuthenticationError):
+        return RuntimeLLMError(str(exc), category="auth_failure", retryable=False)
+    if isinstance(exc, litellm.RateLimitError):
+        return RuntimeLLMError(str(exc), category="rate_limit", retryable=True)
+    if isinstance(exc, (litellm.APIConnectionError, litellm.BadGatewayError, litellm.ServiceUnavailableError)):
+        return RuntimeLLMError(str(exc), category="network_error", retryable=True)
+    if isinstance(exc, (litellm.APIError, litellm.InternalServerError)):
+        return RuntimeLLMError(str(exc), category="server_error", retryable=True)
+    message = str(exc).lower()
+    if "timed out" in message or "timeout" in message:
+        return RuntimeLLMError(str(exc), category="timeout", retryable=True)
+    if "empty" in message:
+        return RuntimeLLMError(str(exc), category="empty_response", retryable=True)
+    if "json" in message or "malformed" in message:
+        return RuntimeLLMError(str(exc), category="malformed_response", retryable=True)
+    return RuntimeLLMError(str(exc), category="server_error", retryable=True)
+
+
+def _record_llm_success(backend: str, settings: Settings) -> None:
+    with _LLM_STATUS_LOCK:
+        preserving_degraded_openai = backend == "mock" and _LLM_STATUS.get("mode") == "openai_compatible" and _LLM_STATUS.get("connectivity") == "degraded"
+        if preserving_degraded_openai:
+            _LLM_STATUS.update(
+                {
+                    "last_backend": backend,
+                    "last_checked_at": datetime.utcnow().isoformat(),
+                }
+            )
+            return
+        _LLM_STATUS.update(
+            {
+                "last_backend": backend,
+                "mode": backend,
+                "model": settings.openai_compatible_model if backend == "openai_compatible" else "mock",
+                "configured": True,
+                "connectivity": "ready",
+                "last_error_category": None,
+                "last_error_message": None,
+                "last_success_at": datetime.utcnow().isoformat(),
+                "last_checked_at": datetime.utcnow().isoformat(),
+            }
+        )
+
+
+def _record_llm_failure(backend: str, settings: Settings, exc: RuntimeLLMError) -> None:
+    connectivity = "misconfigured" if exc.category == "not_configured" else "degraded"
+    with _LLM_STATUS_LOCK:
+        _LLM_STATUS.update(
+            {
+                "last_backend": backend,
+                "mode": backend,
+                "model": settings.openai_compatible_model if backend == "openai_compatible" else "mock",
+                "configured": exc.category != "not_configured",
+                "connectivity": connectivity,
+                "last_error_category": exc.category,
+                "last_error_message": str(exc),
+                "last_checked_at": datetime.utcnow().isoformat(),
+            }
+        )
 
 
 def _pick_style_track(context: RuntimeContext) -> str:
